@@ -125,3 +125,33 @@ def prepare(source, source_url, count=3, model='base', captions=False, editor='b
         p.render(job)
         jobs.append(job)
     return jobs
+
+
+def source_catalog():
+    """Stable display numbers; never rename source files or existing clip jobs."""
+    catalog_path=p.DATA/'source-catalog.json'
+    with p.lock():
+        catalog=p.read(catalog_path) if catalog_path.exists() else {}
+        receipts=sorted((p.DATA/'imports').glob('*/source.json'),key=lambda x:(x.stat().st_mtime,x.parent.name))
+        next_number=max((x['number'] for x in catalog.values()),default=0)+1
+        for receipt in receipts:
+            key=receipt.parent.name
+            if key not in catalog:
+                catalog[key]={'number':next_number}
+                next_number+=1
+        p.write(catalog_path,catalog)
+    sources=[]
+    for receipt in receipts:
+        record=p.read(receipt)
+        path=Path(record['input'])
+        if not path.is_file(): continue
+        number=catalog[receipt.parent.name]['number']
+        title=record.get('title','').strip() or receipt.parent.name
+        sources.append(dict(path=path,number=number,label=f'Import {number:03d} — {title}',
+                            title=title,creator=record.get('creator',''),url=record['source_url']))
+    sources.sort(key=lambda x:x['number'])
+    for path in sorted((p.DATA/'inbox').glob('*')):
+        if path.suffix.lower() in ('.mp4','.mov','.mkv','.webm'):
+            sources.append(dict(path=path,number=None,label='Local file — '+path.name,
+                                title=path.name,creator='',url='Local file: '+path.name))
+    return sources
