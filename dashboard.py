@@ -234,13 +234,22 @@ with preparation:
             imported=task(prep.import_video,video_link,external_ref)
             if imported:
                 st.session_state['imported_source']=imported
-                st.success('Source imported. Choose it below to prepare drafts.')
-    choices=sorted(x for x in (p.DATA/'inbox').glob('*') if x.suffix.lower() in ('.mp4','.mov','.mkv','.webm'))
-    choices+=sorted(x for x in (p.DATA/'imports').glob('*/source.*') if x.suffix.lower() in ('.mp4','.mov','.mkv','.webm'))
-    if choices:
-        selected=st.selectbox('Video to analyze',choices,format_func=lambda x:x.parent.name+'/'+x.name)
-        source_record=selected.parent/'source.json'
-        ref=p.read(source_record)['source_url'] if source_record.exists() else 'Local file: '+selected.name
+                st.success('Source imported. Its numbered title will appear below.')
+    try:
+        source_list=prep.source_catalog()
+    except RuntimeError as exc:
+        st.info(str(exc))
+        source_list=[]
+    if source_list:
+        chosen_source=st.selectbox('Video to analyze',source_list,format_func=lambda x:x['label'])
+        selected=chosen_source['path']
+        ref=chosen_source['url']
+        st.write('Selected source: '+chosen_source['label'])
+        if chosen_source['creator']: st.caption('Creator: '+chosen_source['creator'])
+        if ref.startswith('https://'): st.link_button('Open original source on YouTube',ref)
+        st.code(str(selected),language=None)
+        if st.checkbox('Show full source video to verify selection'):
+            st.video(str(selected))
         with st.form('prepare-batch'):
             source_ref=st.text_input('Source reference for draft credits',value=ref)
             n=st.slider('Maximum draft clips',1,5,3)
