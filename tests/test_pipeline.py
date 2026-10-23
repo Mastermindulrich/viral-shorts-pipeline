@@ -28,9 +28,6 @@ class PipelineTests(unittest.TestCase):
         subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i','testsrc2=size=320x180:rate=30',
                         '-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','2',
                         '-c:v','libx264','-c:a','aac',self.job['input']], check=True)
-        transcript = self.root/'transcript.json'
-        p.write(transcript,[dict(start=0,end=1,text='Test caption')])
-        self.job['transcript'] = str(transcript)
         p.render(self.job)
         dest = p.output(self.job)
         meta = p.probe(dest/'clip.mp4')
@@ -45,6 +42,37 @@ class PipelineTests(unittest.TestCase):
             p.check_approval(dict(self.job,title='Changed'))
         with (dest/'clip.mp4').open('ab') as f: f.write(b'changed')
         with self.assertRaises(ValueError): p.check_approval(self.job)
+    def test_optional_caption_render(self):
+        capability=p.caption_capability()
+        if not capability['supported']:
+            self.skipTest(capability['reason'])
+        subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i','color=c=black:s=320x180:r=30',
+                        '-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','2',
+                        '-c:v','libx264','-c:a','aac',self.job['input']],check=True)
+        transcript=self.root/'transcript.json'
+        p.write(transcript,[dict(start=0,end=1,text='Test caption')])
+        self.job['transcript']=str(transcript)
+        p.render(self.job)
+        self.assertIn('Test caption',(p.output(self.job)/'captions.srt').read_text())
+        self.assertTrue((p.output(self.job)/'clip.mp4').is_file())
+        # The captioned frame must differ from the otherwise black source frame.
+        pixels=subprocess.check_output(['ffmpeg','-v','error','-i',str(p.output(self.job)/'clip.mp4'),
+                                        '-frames:v','1','-f','rawvideo','-pix_fmt','gray','-'])
+        self.assertGreater(max(pixels),200)
+
+    def test_caption_capability_and_early_failure(self):
+        with patch.object(p.subprocess,'run',return_value=subprocess.CompletedProcess([],0,
+                stdout=' ... scale V->V Scale video\n ... subtitles V->V Render text\n',stderr='')):
+            self.assertTrue(p.caption_capability()['supported'])
+        with patch.object(p.subprocess,'run',return_value=subprocess.CompletedProcess([],0,
+                stdout=' ... scale V->V Scale video\n',stderr='')):
+            self.assertFalse(p.caption_capability()['supported'])
+        with patch.object(p,'caption_capability',return_value={'supported':False,'reason':'subtitles/libass missing'}), \
+             patch.object(p,'material') as material:
+            with self.assertRaisesRegex(ValueError,'subtitles/libass'):
+                p.render(dict(self.job,transcript='unused.json'))
+            material.assert_not_called()
+
     def test_channel_guard(self):
         service = MagicMock()
         service.channels.return_value.list.return_value.execute.return_value = {

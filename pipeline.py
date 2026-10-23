@@ -44,6 +44,27 @@ def digest(path):
 def probe(path):
     return json.loads(subprocess.check_output(['ffprobe', '-v', 'error', '-show_format', '-show_streams', '-of', 'json', str(path)]))
 
+def caption_capability():
+    """Inspect the installed executable; captions are an optional libass feature."""
+    try:
+        result=subprocess.run(['ffmpeg','-hide_banner','-filters'],capture_output=True,text=True,timeout=10)
+    except (OSError,subprocess.TimeoutExpired):
+        return {'supported':False,'reason':'Cannot inspect FFmpeg. Check the local FFmpeg installation.'}
+    if result.returncode:
+        return {'supported':False,'reason':'FFmpeg could not list its filters. Check the local FFmpeg installation.'}
+    supported=any(len(parts:=line.split())>=3 and parts[1]=='subtitles'
+                  for line in result.stdout.splitlines())
+    return {'supported':supported,'reason':
+            'Burned-in captions available.' if supported else
+            'Burned-in captions are unavailable in this FFmpeg build (subtitles/libass missing). Generate clips with captions off.'}
+
+
+def require_captions():
+    capability=caption_capability()
+    if not capability['supported']:
+        raise ValueError(capability['reason'])
+
+
 def validate(job):
     if not re.fullmatch(r'[a-zA-Z0-9_-]{1,80}', job['id']):
         raise ValueError('id must contain only letters, digits, underscores and hyphens')
@@ -88,6 +109,7 @@ def subtitles(segments, start, end):
 
 def render(job):
     validate(job)
+    if job.get('transcript'): require_captions()
     src = material(job)
     meta = probe(src)
     duration = float(meta['format']['duration'])
@@ -108,7 +130,7 @@ def render(job):
         if not srt:
             raise ValueError('No transcript text overlaps this clip')
         (dest / 'captions.srt').write_text(srt)
-        vf += ",subtitles=captions.srt:force_style='FontSize=18,Outline=2,MarginV=100'"
+        vf += ",subtitles=filename=captions.srt:force_style='FontSize=18,Outline=2,MarginV=100'"
     tmp = dest / 'clip.partial.mp4'
     run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(job['start']), '-i', str(src),
          '-t', str(job['end']-job['start']), '-map', '0:v:0', '-map', '0:a:0', '-vf', vf,

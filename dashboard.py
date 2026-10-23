@@ -91,7 +91,9 @@ with make:
                                          start=manual_start,end=manual_end,title=manual_title))
     count=st.slider('Clips to suggest',1,5,3)
     with st.expander('Editing options'):
-        captions=st.checkbox('Burn in captions',value=False)
+        capability=p.caption_capability()
+        captions=st.checkbox('Burn in captions',value=False,disabled=not capability['supported'])
+        if not capability['supported']: st.caption(capability['reason'])
         st.caption('Uses local Qwen AI to study English dialogue and choose complete scenes with supported, curiosity-driven titles. Action and visual reactions need your review.')
     if st.button('Generate clips',type='primary',disabled=busy):
         if mode=='YouTube link':

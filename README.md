@@ -242,3 +242,17 @@ For dance and visual action: **Make clips → Import only**, then **Already impo
 video → Choose a visual moment manually**. Preview the source, enter a start and end
 within 60 seconds, and give it an English title. The preview joins the normal review
 queue. The dialogue editor does not automatically understand visual choreography.
+
+### Optional captions and update validation
+
+FFmpeg builds differ in their optional subtitle support. The app checks the actual
+installed executable for the `subtitles` filter; **Burn in captions** is disabled if
+that capability is missing. Caption requests also fail early with a clear message
+before downloading/transcribing a batch or changing an existing export. Normal
+rendering, approval and upload do not require subtitle support.
+
+Update validation always runs the core render/approval tests. A separate real
+caption-render test runs only when the filter is available; its explicit skip does
+not skip any core tests. Future test failures name the failing test in Activity,
+with full output in `data/logs/update-checks.log`. The updater still rolls back on
+core failures or on caption-render failures when support is advertised.

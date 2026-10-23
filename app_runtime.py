@@ -125,6 +125,21 @@ def install():
     subprocess.run(['open',str(app)],check=True)
     print('Installed. Open ~/Applications/Viral Moment Clips.app. Logs: '+str(LOG))
 
+def run_update_checks():
+    stage('Validating update')
+    result=subprocess.run([sys.executable,'-m','unittest','discover','-s','tests','-v'],
+                          cwd=p.ROOT,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+    output=result.stdout or ''
+    LOG.parent.mkdir(parents=True,exist_ok=True)
+    (LOG.parent/'update-checks.log').write_text(output)
+    print(output,flush=True)
+    if result.returncode:
+        names=[line for line in output.splitlines() if line.startswith(('ERROR:','FAIL:'))]
+        detail='; '.join(names) or output[-1500:]
+        raise RuntimeError('Update validation failed: '+detail+
+                           '. See Activity diagnostics or data/logs/update-checks.log for details.')
+
+
 def update():
     stage('Checking for updates')
     if not (Path.home()/'Library/LaunchAgents'/(LABEL+'.plist')).exists(): raise RuntimeError('Install the Mac launcher before using Update app.')
@@ -146,7 +161,7 @@ def update():
         stage('Installing update')
         subprocess.run(['git','merge','--ff-only',remote],cwd=p.ROOT,check=True)
         subprocess.run([sys.executable,'-m','pip','install','-r','requirements.txt','-r','requirements-preparation.txt'],cwd=p.ROOT,check=True)
-        subprocess.run([sys.executable,'-m','unittest','discover','-s','tests'],cwd=p.ROOT,check=True)
+        run_update_checks()
     except Exception:
         subprocess.run(['git','reset','--hard',old],cwd=p.ROOT,check=True)
         raise

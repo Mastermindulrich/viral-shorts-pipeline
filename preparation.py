@@ -94,6 +94,7 @@ def windows(segments, limit=3):
 
 
 def prepare(source, source_url, count=3, model='base', captions=False, editor='basic', editor_model='qwen2.5:7b'):
+    if captions: p.require_captions()
     source=Path(source).resolve()
     receipt=source.parent/'source.json'
     if receipt.exists():
