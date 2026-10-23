@@ -1,0 +1,24 @@
+{
+  "searches_per_scan":4,
+  "regions":["US","GB","CA"],
+  "topics":[
+    {"name":"Politics and debates","query":"politics debate interview"},
+    {"name":"Dance and performances","query":"dance performance battle"},
+    {"name":"Celebrities and streamers","query":"celebrity streamer interview viral"},
+    {"name":"Football and soccer","query":"football soccer highlights interview"},
+    {"name":"Basketball","query":"NBA basketball interview highlights"},
+    {"name":"Breaking news","query":"breaking news interview"},
+    {"name":"Hollywood and film","query":"Hollywood actor interview premiere"},
+    {"name":"Finance and business","query":"finance business money interview"},
+    {"name":"Geopolitics","query":"geopolitics world affairs debate"},
+    {"name":"Culture and events","query":"cultural festival event performance"},
+    {"name":"Controversial conversations","query":"heated debate viral interview"},
+    {"name":"Music and concerts","query":"music concert live performance"},
+    {"name":"Comedy and entertainment","query":"comedy funny viral moments"},
+    {"name":"Other sports","query":"sports incredible highlights interview"},
+    {"name":"Technology and science","query":"technology science discovery interview"},
+    {"name":"Human stories","query":"surprising inspiring human story"},
+    {"name":"Fashion and lifestyle","query":"fashion lifestyle viral event"},
+    {"name":"Gaming and internet culture","query":"gaming streamer viral moment"}
+  ]
+}

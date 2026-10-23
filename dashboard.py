@@ -11,6 +11,7 @@ for folder in ['inbox', 'jobs', 'exports']:
 st.set_page_config(page_title='Viral Moment Clips', page_icon='🎬', layout='wide')
 st.title('Viral Moment Clips')
 st.caption('Original sound. Local production. Review before publishing.')
+if st.session_state.get('batch_done'): st.success(st.session_state.pop('batch_done'))
 
 
 def task(fn, *args):
@@ -89,6 +90,15 @@ with queue:
                 st.video(str(dest/'clip.mp4'))
                 st.write(job.get('description',''))
                 st.caption('Source: '+job['source_url'])
+                if job.get('editorial'):
+                    edit=job['editorial']
+                    st.write('Scene topic: '+edit['topic'])
+                    st.write('Setup: '+edit['setup'])
+                    st.write('Payoff: '+edit['payoff'])
+                    st.write('Why this cut: '+edit['why_this_cut'])
+                    st.write('Transcript evidence: '+edit['evidence_quote'])
+                    st.write('Alternative titles:',edit.get('alternative_titles',[]))
+                    st.caption('AI editorial judgment, not a prediction. Check names, claims and visual events against the video.')
                 if (dest/'upload.json').exists():
                     receipt = p.read(dest/'upload.json')
                     if receipt.get('video_id'):
@@ -151,8 +161,17 @@ with queue:
             st.error(f'{path.parent.name}: {exc}')
 
 with discovery:
-    st.subheader('Monitor source channels')
-    st.caption('Starter research list: experiments, science and interviews. These are scouting sources, not licensed partners.')
+    st.subheader('Discover across all topics')
+    st.caption('Politics, dance, celebrities, news, sport, culture, finance, geopolitics and more. No topic is excluded by editorial preference. Searches rotate to conserve the free API quota; this is not an exhaustive internet-wide scan.')
+    if st.button('Scout across topics'):
+        import scouting
+        scan=task(scouting.discover_broad)
+        if scan: st.write(scan)
+    if (p.DATA/'discovery-rotation.json').exists():
+        scan_state=p.read(p.DATA/'discovery-rotation.json')
+        st.caption('Last searched: '+', '.join(scan_state.get('last_topics',[])))
+    st.subheader('Optional monitored creators')
+    st.caption('The original three creators are optional additions. Cross-topic discovery is the primary broad scouting mode.')
     if st.button('Add starter research channels'):
         def add_starters():
             existing=p.read(p.ROOT/'config'/'sources.json')
@@ -180,6 +199,18 @@ with discovery:
     st.write(sources or 'No channels configured yet.')
     if st.button('Find recent videos'):
         task(p.discover)
+        st.caption('Creator-feed refresh replaces the current candidate list; run Scout across topics afterward to merge broad results.')
+    if st.button('Rank sources by views and recent growth'):
+        import scouting
+        task(scouting.refresh)
+    if (p.DATA/'ranked-candidates.json').exists():
+        ranked=p.read(p.DATA/'ranked-candidates.json')
+        st.caption('Priority is a heuristic. First scan uses average views/hour since publication; actual growth needs scans 15+ minutes apart. Source median compares only this retrieved sample.')
+        st.dataframe([{'Title':x['title'],'Creator':x['source'],'Views':x['views'],
+                       'Duration (s)':x['duration_seconds'],'Long source':x['eligible_long_source'],
+                       'Measured views/hour':x['measured_views_per_hour'],
+                       'Average views/hour':round(x['average_views_per_hour'],1),
+                       'Relative to creator sample':x['relative_to_source_median'],'Priority':x['priority_score']} for x in ranked])
     if (p.DATA/'candidates.json').exists():
         for item in p.read(p.DATA/'candidates.json'):
             st.write(item['source']+' · '+item['title'])
@@ -214,12 +245,16 @@ with preparation:
             source_ref=st.text_input('Source reference for draft credits',value=ref)
             n=st.slider('Maximum draft clips',1,5,3)
             model=st.selectbox('Local transcription model',['base','small'],help='Base is faster. Small may recognize speech more accurately.')
+            editor=st.selectbox('Clip selection method',['semantic','basic'],format_func=lambda x:'Story editor — local AI (recommended)' if x=='semantic' else 'Basic speech windows — no semantic understanding')
+            editor_model=st.text_input('Local Ollama editor model',value='qwen2.5:7b')
+            st.caption('Story editor needs Ollama running locally and the selected model downloaded. It reads transcript sections and a whole-video topic map, then proposes complete scenes and supported titles. It does not inspect video frames.')
             caps=st.checkbox('Burn in captions (requires FFmpeg subtitles/libass support)',value=False)
             prepare_submit=st.form_submit_button('Analyze speech and create previews')
         if prepare_submit:
             st.caption('First run downloads a free speech model. Long videos may take significant time on CPU.')
-            result=task(prep.prepare,selected,source_ref,n,model,caps)
+            result=task(prep.prepare,selected,source_ref,n,model,caps,editor,editor_model)
             if result:
-                st.success(f'{len(result)} draft clips ready in Review queue. Edit their metadata, review and approve there.')
+                st.session_state['batch_done']=f'{len(result)} draft clips ready in Review queue.'
+                st.rerun()
     else:
         st.caption('Import a source above or place a local video in data/inbox.')

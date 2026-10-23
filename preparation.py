@@ -84,7 +84,7 @@ def windows(segments, limit=3):
     return sorted(selected,key=lambda x:x['start'])
 
 
-def prepare(source, source_url, count=3, model='base', captions=False):
+def prepare(source, source_url, count=3, model='base', captions=False, editor='basic', editor_model='qwen2.5:7b'):
     source=Path(source).resolve()
     key=p.digest(source)[:16]
     transcript=p.DATA/'transcripts'/(key+'.json')
@@ -92,21 +92,33 @@ def prepare(source, source_url, count=3, model='base', captions=False):
         from faster_whisper import WhisperModel
         segments,_=WhisperModel(model,device='cpu',compute_type='int8').transcribe(str(source),vad_filter=True)
         p.write(transcript,[dict(start=s.start,end=s.end,text=s.text.strip()) for s in segments])
-    candidates=windows(p.read(transcript),count)
+    if editor=='semantic':
+        import editorial
+        metadata={}
+        if (source.parent/'source.json').exists():
+            record=p.read(source.parent/'source.json')
+            metadata={k:record.get(k,'') for k in ['title','creator','source_url']}
+        report=editorial.select_scenes(p.read(transcript),count,editor_model,metadata)
+        p.write(p.DATA/'editorial'/(key+'-'+editorial.VERSION+'.json'),report)
+        candidates=report['scenes']
+    else:
+        candidates=windows(p.read(transcript),count)
     if not candidates:
         raise ValueError('Not enough continuous speech for suggestions. Use the manual clip form for silent/action videos.')
     jobs=[]
     for item in candidates:
-        ident='draft-'+key+'-'+str(round(item['start']*1000))
+        ident=('story-v1-' if editor=='semantic' else 'draft-')+key+'-'+str(round(item['start']*1000))
         dest=p.DATA/'jobs'/(ident+'.json')
         if dest.exists():
             old=p.read(dest)
             if not (p.output(old)/'clip.mp4').exists(): p.render(old)
             jobs.append(old); continue
-        title=re.split(r'(?<=[.!?])\s',item['text'])[0][:95].strip()
+        title=item.get('title') or re.split(r'(?<=[.!?])\s',item['text'])[0][:95].strip()
         job=dict(id=ident,input=str(source),source_url=source_url,start=item['start'],end=item['end'],
                  title=title,description='',layout='fit',made_for_kids=False,privacy='private',
                  needs_editorial_review=True,transcript_excerpt=item['text'])
+        if editor=='semantic':
+            job['editorial']={k:v for k,v in item.items() if k not in ('start','end','text','title')}
         if captions: job['transcript']=str(transcript)
         p.validate(job)
         p.write(dest,job)
