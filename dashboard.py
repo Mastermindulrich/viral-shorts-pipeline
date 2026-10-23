@@ -155,8 +155,12 @@ with queue:
                     if job.get('publish_at'): st.write('Publish at: '+job['publish_at'])
                     confirmed=st.checkbox('Upload this approved version to Viral Moment Clips',key='upload-confirm-'+job['id'])
                     if st.button('Upload approved clip',key='upload-'+job['id'],disabled=not confirmed):
-                        task(p.upload,job)
-                        st.rerun()
+                        def upload_approved():
+                            p.upload(job)
+                            return True
+                        # Keep failures visible; rerun only after a confirmed success.
+                        if task(upload_approved):
+                            st.rerun()
         except Exception as exc:
             st.error(f'{path.parent.name}: {exc}')
 
