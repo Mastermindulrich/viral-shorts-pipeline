@@ -1,0 +1,3 @@
+# Optional, free local source importing and CPU transcription.
+yt-dlp[default]>=2025.1
+faster-whisper>=1.1,<2

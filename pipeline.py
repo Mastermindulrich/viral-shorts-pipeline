@@ -128,6 +128,8 @@ def fingerprint(job):
 
 def approve(job, reference):
     validate(job)
+    if job.get('needs_editorial_review'):
+        raise ValueError('Review draft title and audience settings before approval')
     dest = output(job)
     if read(dest/'job.json') != job:
         raise ValueError('Job changed since rendering; render again')

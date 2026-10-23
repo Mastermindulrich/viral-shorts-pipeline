@@ -1,0 +1,115 @@
+"""On-demand source import and draft batches; never uploads or approves content."""
+import hashlib
+import re
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+import pipeline as p
+
+
+def video_url(url):
+    parsed = urlparse(url.strip())
+    if parsed.scheme != 'https' or parsed.username or parsed.password:
+        raise ValueError('Use an HTTPS YouTube video link')
+    host = parsed.hostname
+    if host == 'youtu.be':
+        vid = parsed.path.strip('/')
+    elif host in ('www.youtube.com','youtube.com','m.youtube.com'):
+        if parsed.path == '/watch':
+            vid = parse_qs(parsed.query).get('v',[''])[0]
+        elif re.fullmatch(r'/(shorts|live)/[^/]+/?',parsed.path):
+            vid = parsed.path.rstrip('/').split('/')[-1]
+        else:
+            vid = ''
+    else:
+        vid = ''
+    if not re.fullmatch(r'[\w-]{11}',vid,flags=re.ASCII):
+        raise ValueError('Use one video link, not a playlist, channel or other website')
+    return 'https://www.youtube.com/watch?v='+vid
+
+
+def import_video(url, clearance):
+    url = video_url(url)
+    if not clearance.strip():
+        raise ValueError('Record the reference from your separate content-clearance process')
+    from yt_dlp import YoutubeDL
+    vid = parse_qs(urlparse(url).query)['v'][0]
+    folder = p.DATA/'imports'/vid
+    receipt = folder/'source.json'
+    if receipt.exists():
+        old = p.read(receipt)
+        if Path(old['input']).is_file():
+            return old
+    folder.mkdir(parents=True, exist_ok=True)
+    opts = dict(noplaylist=True, outtmpl=str(folder/'source.%(ext)s'),
+                format='bv[height<=1080]+ba/b[height<=1080]', merge_output_format='mp4',
+                socket_timeout=30, retries=2, fragment_retries=2, quiet=True,
+                max_filesize=2_000_000_000)
+    with YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url,download=False)
+        if info.get('is_live') or not info.get('duration') or info['duration']>3*3600:
+            raise ValueError('Use a finished video shorter than three hours')
+        info = ydl.extract_info(url, download=True)
+    files = [x for x in folder.glob('source.*') if x.suffix.lower() in ('.mp4','.mkv','.webm','.mov')]
+    if len(files)!=1:
+        raise ValueError('Download did not produce one merged video. Check FFmpeg and source availability.')
+    p.probe(files[0])
+    record = dict(input=str(files[0].resolve()),source_url=url,title=info.get('title',''),
+                  creator=info.get('uploader',''),clearance_reference=clearance.strip())
+    p.write(receipt,record)
+    return record
+
+
+def windows(segments, limit=3):
+    # Deterministic speech-window heuristic: prioritize intelligible, complete sentences.
+    results=[]
+    for i, first in enumerate(segments):
+        chosen=[]
+        for seg in segments[i:]:
+            if float(seg['end'])-float(first['start'])>50:
+                break
+            chosen.append(seg)
+            if float(seg['end'])-float(first['start'])>=25 and re.search(r'[.!?]$',seg['text'].strip()):
+                break
+        if not chosen: continue
+        a,b=float(first['start']),float(chosen[-1]['end'])
+        text=' '.join(s['text'].strip() for s in chosen).strip()
+        if b-a<15 or len(text.split())<15: continue
+        score = min(len(text.split())/(b-a),3) + bool(re.search(r'[.!?]$',text))
+        results.append(dict(start=a,end=b,text=text,score=score))
+    selected=[]
+    for item in sorted(results,key=lambda x:x['score'],reverse=True):
+        if all(item['end']<=s['start'] or item['start']>=s['end'] for s in selected):
+            selected.append(item)
+        if len(selected)>=limit: break
+    return sorted(selected,key=lambda x:x['start'])
+
+
+def prepare(source, source_url, count=3, model='base', captions=False):
+    source=Path(source).resolve()
+    key=p.digest(source)[:16]
+    transcript=p.DATA/'transcripts'/(key+'.json')
+    if not transcript.exists():
+        from faster_whisper import WhisperModel
+        segments,_=WhisperModel(model,device='cpu',compute_type='int8').transcribe(str(source),vad_filter=True)
+        p.write(transcript,[dict(start=s.start,end=s.end,text=s.text.strip()) for s in segments])
+    candidates=windows(p.read(transcript),count)
+    if not candidates:
+        raise ValueError('Not enough continuous speech for suggestions. Use the manual clip form for silent/action videos.')
+    jobs=[]
+    for item in candidates:
+        ident='draft-'+key+'-'+str(round(item['start']*1000))
+        dest=p.DATA/'jobs'/(ident+'.json')
+        if dest.exists():
+            old=p.read(dest)
+            if not (p.output(old)/'clip.mp4').exists(): p.render(old)
+            jobs.append(old); continue
+        title=re.split(r'(?<=[.!?])\s',item['text'])[0][:95].strip()
+        job=dict(id=ident,input=str(source),source_url=source_url,start=item['start'],end=item['end'],
+                 title=title,description='',layout='fit',made_for_kids=False,privacy='private',
+                 needs_editorial_review=True,transcript_excerpt=item['text'])
+        if captions: job['transcript']=str(transcript)
+        p.validate(job)
+        p.write(dest,job)
+        p.render(job)
+        jobs.append(job)
+    return jobs

@@ -131,3 +131,14 @@ After installing, use `bash Launch.command` or double-click the executable launc
 Create clips from existing files in `data/inbox`, review previews in the queue, choose visibility and optional future publication time, enter your external clearance reference and approve. A separate Upload button sends an approved clip. Google credentials stay in the existing local secrets folder. Source discovery supports adding creator channel IDs and browsing recent uploads. No automatic downloading, autonomous editorial selection, local transcription buttons or background scheduling have been added to the panel yet.
 
 The panel preserves the original audio and does not generate narration. Creating a preview does not upload it. Existing exports and upload receipts remain in place on update. Dates for scheduled uploads must include a timezone and require private visibility.
+
+
+## Source importing and automatic draft batches
+
+Install optional local tools with `python -m pip install -r requirements-preparation.txt`, then restart the dashboard. In Source discovery, Add starter research channels merges three initial creators without replacing your list. These are candidates for research, not licensed partners or recommendations to repost without clearance.
+
+The Prepare a batch tab imports a single HTTPS YouTube video with your external clearance reference, capped at 1080p, excluding active live streams and sources longer than three hours. It does not use browser cookies or bypass access controls. Download availability depends on YouTube and yt-dlp; authentication, bot checks, JavaScript runtime requirements or source restrictions may prevent downloads. A failed import can be replaced by a local source file in data/inbox. Imported sources are reused rather than downloaded again when their receipt and file exist.
+
+Choose a local or imported video, select up to five drafts, and run local CPU transcription. The first run downloads free model weights. Speech-window selection favors coherent spoken sentences; it is not a reliable predictor of viral performance and cannot identify silent action highlights. Suggested titles are transcript excerpts and must be edited. Drafts default private and have an editorial hold: review and save title, description and audience setting in Review queue before approval. No draft is automatically uploaded.
+
+Captions are off by default because the owner's installed FFmpeg may lack libass. Enable captions only if `ffmpeg -filters` lists subtitles. Original source audio is retained. This release has not been validated against live source downloads or a full speech-model inference on the owner's Mac; the local import/transcription test is the next milestone.
