@@ -14,6 +14,7 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+import urllib.error
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
@@ -242,38 +243,69 @@ def upload(job):
     write(receipt, {'state': 'uploaded', 'day': today, 'video_id': response['id'], 'job_sha': fingerprint(job)})
     print('https://www.youtube.com/watch?v=' + response['id'])
 
+def api_recent_uploads(channel_id, service=None):
+    if service is None:
+        from googleapiclient.discovery import build
+        service = build('youtube', 'v3', credentials=credentials(), cache_discovery=False)
+    channels = service.channels().list(part='contentDetails', id=channel_id).execute().get('items', [])
+    if not channels:
+        raise ValueError('YouTube API did not find this channel')
+    uploads = channels[0]['contentDetails']['relatedPlaylists']['uploads']
+    items = service.playlistItems().list(part='snippet,contentDetails', playlistId=uploads, maxResults=15).execute().get('items', [])
+    return [dict(id=x['contentDetails']['videoId'], title=x['snippet']['title'],
+                 published=x['contentDetails'].get('videoPublishedAt', x['snippet'].get('publishedAt','')))
+            for x in items if x.get('contentDetails', {}).get('videoId')]
+
+
+def recent_uploads(channel_id):
+    url = 'https://www.youtube.com/feeds/videos.xml?channel_id=' + channel_id
+    req = urllib.request.Request(url, headers={'User-Agent':'ShortsPipeline/0.2'})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as f:
+            root = ET.fromstring(f.read(2_000_000))
+        ns = {'a':'http://www.w3.org/2005/Atom','yt':'http://www.youtube.com/xml/schemas/2015'}
+        entries = [dict(id=e.findtext('yt:videoId', namespaces=ns), title=e.findtext('a:title', namespaces=ns),
+                        published=e.findtext('a:published', namespaces=ns)) for e in root.findall('a:entry', ns)]
+        if not entries:
+            return api_recent_uploads(channel_id)
+        return entries
+    except (urllib.error.URLError, TimeoutError, ET.ParseError) as exc:
+        print(f'RSS unavailable for {channel_id}: {exc}. Trying YouTube API.')
+        try:
+            return api_recent_uploads(channel_id)
+        except Exception as api_error:
+            raise RuntimeError(f'RSS: {exc}; API fallback: {api_error}') from api_error
+
+
 def discover():
     settings = read(ROOT/'config'/'sources.json')
     DATA.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DATA/'discovery.sqlite3')
     db.execute('CREATE TABLE IF NOT EXISTS candidates (id TEXT PRIMARY KEY, title TEXT, url TEXT, published TEXT, source TEXT)')
     errors = []
-    for source in settings:
-        try:
-            channel = source['channel_id']
-            if not re.fullmatch(r'UC[\w-]{22}', channel):
-                raise ValueError('Invalid YouTube channel ID')
-            url = 'https://www.youtube.com/feeds/videos.xml?channel_id=' + channel
-            req = urllib.request.Request(url, headers={'User-Agent':'ShortsPipeline/0.1'})
-            with urllib.request.urlopen(req, timeout=30) as f:
-                root = ET.fromstring(f.read(2_000_000))
-            ns = {'a':'http://www.w3.org/2005/Atom','yt':'http://www.youtube.com/xml/schemas/2015'}
-            for e in root.findall('a:entry', ns):
-                vid = e.findtext('yt:videoId', namespaces=ns)
-                db.execute('INSERT OR IGNORE INTO candidates VALUES (?,?,?,?,?)',
-                    (vid, e.findtext('a:title', namespaces=ns), 'https://www.youtube.com/watch?v='+vid,
-                     e.findtext('a:published', namespaces=ns), source['name']))
-        except Exception as exc:
-            errors.append(f"{source.get('name','source')}: {exc}")
-    db.commit()
-    rows = db.execute('SELECT id,title,url,published,source FROM candidates ORDER BY published DESC LIMIT 100').fetchall()
-    db.close()
+    try:
+        for source in settings:
+            try:
+                channel_id = source['channel_id']
+                if not re.fullmatch(r'UC[\w-]{22}', channel_id):
+                    raise ValueError('Invalid YouTube channel ID')
+                for item in recent_uploads(channel_id):
+                    if not item.get('id'):
+                        continue
+                    db.execute('INSERT OR IGNORE INTO candidates VALUES (?,?,?,?,?)',
+                               (item['id'], item['title'], 'https://www.youtube.com/watch?v='+item['id'],
+                                item['published'], source['name']))
+            except Exception as exc:
+                errors.append(f"{source.get('name','source')}: {exc}")
+        db.commit()
+        rows = db.execute('SELECT id,title,url,published,source FROM candidates ORDER BY published DESC LIMIT 100').fetchall()
+    finally:
+        db.close()
     write(DATA/'candidates.json', [dict(zip(['id','title','url','published','source'], r)) for r in rows])
     print(f'{len(rows)} recent candidates saved; discovery is not rights clearance or a virality forecast')
-    for error in errors:
-        print(error, file=sys.stderr)
     if errors:
-        raise RuntimeError('Some source feeds failed; other results were saved')
+        raise RuntimeError('Some sources failed; other results were saved. ' + ' | '.join(errors))
+
 
 def transcribe(path, model):
     from faster_whisper import WhisperModel
