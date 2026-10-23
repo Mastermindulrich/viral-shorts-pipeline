@@ -180,15 +180,17 @@ def auth():
 def lock():
     DATA.mkdir(parents=True, exist_ok=True)
     path = DATA/'worker.lock'
-    try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError:
-        raise RuntimeError('Worker already running, or stale data/worker.lock; inspect before removing')
-    try:
-        os.close(fd)
-        yield
-    finally:
-        path.unlink(missing_ok=True)
+    import fcntl
+    with path.open('a+') as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('Another task is running. Check Activity.')
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
 
 def verify_channel(service, expected):
     if not expected:

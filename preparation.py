@@ -115,7 +115,7 @@ def prepare(source, source_url, count=3, model='base', captions=False, editor='b
             jobs.append(old); continue
         title=item.get('title') or re.split(r'(?<=[.!?])\s',item['text'])[0][:95].strip()
         job=dict(id=ident,input=str(source),source_url=source_url,start=item['start'],end=item['end'],
-                 title=title,description='',layout='fit',made_for_kids=False,privacy='private',
+                 title=title,description='',layout='fit',made_for_kids=False,privacy='public',
                  needs_editorial_review=True,transcript_excerpt=item['text'])
         if editor=='semantic':
             job['editorial']={k:v for k,v in item.items() if k not in ('start','end','text','title')}

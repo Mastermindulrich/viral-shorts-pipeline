@@ -164,3 +164,47 @@ Scout across topics merges the public mostPopular chart from three configurable 
 This is a quota-bounded sample, not coverage of every topic on every scan or every platform. Popular charts may omit topics and depend on YouTube availability. Queries currently use English and charts default to US, GB and CA; edit config/discovery.json for other regions or query languages. Four search calls plus up to three chart calls per scan are bounded in code; API daily quota exhaustion can still occur after repeated scans. Errors are shown with partial results retained. Traditional creator-feed discovery replaces the candidate file; run broad scouting afterward to merge additional results.
 
 Prioritization has no positive or negative category weight. It ranks measured growth or lifetime average views/hour with sample-relative performance; that is an experimental proxy for audience interest, not a prediction of clicks. Speech-only semantic clipping is unsuitable for silent dance/sports/action moments without visual editorial review. No visual scene understanding or automatic publishing is claimed in this release.
+
+## Guided studio and Mac launcher
+
+The main dashboard now follows **Find videos → Make clips → Review & publish → Published**.
+A single Generate clips task imports a source, transcribes speech, selects scenes,
+writes titles and renders previews. Tasks run as separate local processes; refreshing
+or closing the browser does not cancel them. Activity and diagnostics persist in
+`data/logs/activity.log`. Review each clip once, then publish individually or as a
+selected batch. Newly approved publishing uses **public immediately**. Previous
+uploads are not modified, and old approvals must be reviewed again to change visibility.
+YouTube processing and account restrictions can delay availability.
+
+### One-time installation on your Mac
+
+Stop the old Streamlit terminal with Control+C before installation. From the project:
+
+```bash
+git pull --ff-only
+bash Install-Mac.command
+```
+
+Open **~/Applications/Viral Moment Clips.app** in Finder. The dashboard service runs
+through launchd, starts at login, and survives closing VS Code. Your Mac must be
+logged in and awake to process tasks. Ollama must be running with qwen2.5:7b installed.
+If startup fails, open `data/logs/activity.log` in Finder/TextEdit.
+
+**Activity & settings → Update app** fetches the configured Git upstream, accepts only
+fast-forward updates, preserves local JSON configuration, installs dependencies,
+runs tests and restarts the installed service. Code rollback runs if installation
+or tests fail; installed Python dependency changes are not fully rolled back.
+Local code edits stop the updater so they cannot be overwritten. Videos, credentials,
+and upload receipts are never reset. Updating is blocked while a task is running.
+The older manual dashboard is retained as `dashboard_legacy.py`.
+
+To stop/remove the login service on a Mac:
+
+```bash
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.viralmomentclips.dashboard.plist
+rm ~/Library/LaunchAgents/com.viralmomentclips.dashboard.plist
+```
+
+Scouting is automated on demand, not scheduled unattended ingestion. Source permission
+records and final editorial review remain explicit. Visual-only moments still need
+manual selection in the legacy tools. No cloud services or paid APIs were added.

@@ -62,6 +62,7 @@ class PipelineTests(unittest.TestCase):
         with p.lock():
             with self.assertRaises(RuntimeError):
                 with p.lock(): pass
-        self.assertFalse((p.DATA/'worker.lock').exists())
+        # Advisory locks retain the inode and release automatically.
+        with p.lock(): pass
 
 if __name__ == '__main__': unittest.main()
