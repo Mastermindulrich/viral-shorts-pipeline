@@ -63,6 +63,10 @@ def execute(request):
                 import scouting
                 stage('Searching across topics'); scouting.discover_broad()
                 stage('Ranking sources'); scouting.refresh()
+            elif action=='import':
+                import preparation as prep
+                stage('Importing source for visual selection')
+                prep.import_video(data['url'],data['clearance'])
             elif action=='prepare':
                 import preparation as prep
                 if data.get('url'):
@@ -70,6 +74,15 @@ def execute(request):
                 else: path=data['path']; url=data['source_url']
                 stage('Transcribing and selecting complete scenes — this can take several minutes')
                 prep.prepare(path,url,data.get('count',3),'base',data.get('captions',False),'semantic','qwen2.5:7b')
+            elif action=='visual':
+                import uuid
+                stage('Rendering visual clip — maximum 60 seconds')
+                job=dict(id='visual-'+uuid.uuid4().hex[:12],input=data['path'],source_url=data['source_url'],
+                         start=float(data['start']),end=float(data['end']),title=data['title'],description='',
+                         layout='fit',made_for_kids=False,privacy='public',needs_editorial_review=True)
+                p.validate(job)
+                p.write(p.DATA/'jobs'/(job['id']+'.json'),job)
+                p.render(job)
             elif action=='publish':
                 for ident in data['ids']:
                     stage('Publishing '+ident)

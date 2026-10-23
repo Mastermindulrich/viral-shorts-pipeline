@@ -10,7 +10,7 @@ class EditorialTests(unittest.TestCase):
         self.segments=[dict(start=0,end=10,text='Kai asks how much the business earns each year.'),
                        dict(start=10,end=25,text='LeBron says the business earns 100 million in revenue.'),
                        dict(start=25,end=40,text='They explain that revenue is different from personal cash.')]
-        self.scene=dict(first_segment=0,last_segment=2,topic='Business revenue versus cash',
+        self.scene=dict(spoken_language='en',first_segment=0,last_segment=2,topic='Business revenue versus cash',
                         setup='Kai asks about business earnings',payoff='Revenue does not equal personal cash',
                         why_this_cut='Keeps the question, figure and qualification together',
                         title='Kai Asks LeBron About His Business Revenue',alternative_titles=['LeBron Explains What Revenue REALLY Means'],
@@ -77,3 +77,5 @@ class BroadDiscoveryTests(unittest.TestCase):
             self.assertEqual(second['searched_topics'],['2','3'])
             self.assertEqual(len(p.read(p.DATA/'candidates.json')),1)
             self.assertEqual(service.search.return_value.list.call_count,4)
+            for call in service.search.return_value.list.call_args_list:
+                self.assertEqual(call.kwargs['relevanceLanguage'],'en')

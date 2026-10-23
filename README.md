@@ -208,3 +208,37 @@ rm ~/Library/LaunchAgents/com.viralmomentclips.dashboard.plist
 Scouting is automated on demand, not scheduled unattended ingestion. Source permission
 records and final editorial review remain explicit. Visual-only moments still need
 manual selection in the legacy tools. No cloud services or paid APIs were added.
+
+## English audience and 60-second channel rules
+
+The channel now targets English-speaking viewers. Searches request English relevance;
+known non-English audio metadata excludes dialogue sources. Missing audio-language
+metadata is labelled **Language needs verification**, not assumed to be English.
+The AI editor selects English dialogue and writes English titles and explanations.
+Detected non-English source speech blocks automatic dialogue editing. Final review
+confirms English dialogue/metadata, or a visual clip understandable without dialogue.
+
+Official artist music releases are filtered using title, channel-name, category and
+metadata indicators, including official video/audio labels and VEVO/Topic releases.
+Reaction videos, movie trailers, interviews and dance remain eligible. These are
+heuristics, not verified artist-account badges; inspect ambiguous sources. Rejected
+ranking candidates and reasons appear under **Why some sources were excluded**.
+Saved ranked candidates are screened again when the page loads.
+
+Scouting retains broad topics and adds gaming/streamers, hot interviews, African urban
+dance (including amapiano, afrobeats and azonto), TikTok dance challenges, trailers and
+music reactions. TikTok challenges are discovered on **YouTube**, not through a direct
+TikTok connection. These topics are merged in code with existing local configuration,
+so the updater's configuration preservation does not prevent the new rules applying.
+Ranking still uses the same performance signals without a category bonus.
+
+Every clip must be **60 seconds or less**. The limit applies to manual jobs, AI scene
+boundaries, rendering, approval and upload, including the actual exported file's
+measured duration. Old longer drafts are blocked, not silently truncated or published.
+AI scenes aim for complete 15–60 second moments and use new versioned draft IDs.
+Already-published videos are unchanged.
+
+For dance and visual action: **Make clips → Import only**, then **Already imported
+video → Choose a visual moment manually**. Preview the source, enter a start and end
+within 60 seconds, and give it an English title. The preview joins the normal review
+queue. The dialogue editor does not automatically understand visual choreography.

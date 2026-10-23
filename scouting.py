@@ -4,6 +4,7 @@ import math
 import re
 import statistics
 import pipeline as p
+import content_policy as policy
 
 
 def duration_seconds(value):
@@ -38,14 +39,23 @@ def refresh():
     service=build('youtube','v3',credentials=p.credentials(),cache_discovery=False)
     candidates=p.read(p.DATA/'candidates.json')
     lookup={x['id']:x for x in candidates}
-    items=[]
+    items=[]; excluded=[]
     ids=list(lookup)
     for offset in range(0,len(ids),50):
         response=service.videos().list(part='snippet,statistics,contentDetails',id=','.join(ids[offset:offset+50])).execute()
         for item in response.get('items',[]):
             secs=duration_seconds(item.get('contentDetails',{}).get('duration'))
             if secs is None or item['snippet'].get('liveBroadcastContent') in ('live','upcoming'): continue
-            items.append(dict(lookup[item['id']],published=item['snippet']['publishedAt'],duration_seconds=secs,
+            snippet=item['snippet']
+            candidate=dict(lookup[item['id']],title=snippet['title'],source=snippet['channelTitle'],
+                           categoryId=snippet.get('categoryId',''),description=snippet.get('description',''),
+                           defaultAudioLanguage=snippet.get('defaultAudioLanguage',''),
+                           defaultLanguage=snippet.get('defaultLanguage',''))
+            decision=policy.screen(candidate)
+            if not decision['eligible']:
+                excluded.append(dict(id=item['id'],title=candidate['title'],reason=decision['reason']))
+                continue
+            items.append(dict(candidate,policy=decision,published=snippet['publishedAt'],duration_seconds=secs,
                               views=int(item.get('statistics',{}).get('viewCount',0)),
                               likes=int(item.get('statistics',{}).get('likeCount',0))))
     snapshot=p.DATA/'scout-snapshot.json'
@@ -59,6 +69,7 @@ def refresh():
             previous[item['id']]={'views':item['views'],'observed_at':now.isoformat()}
     p.write(snapshot,previous)
     p.write(p.DATA/'ranked-candidates.json',result)
+    p.write(p.DATA/'scouting-exclusions.json',excluded)
     return result
 
 
@@ -66,7 +77,7 @@ def discover_broad():
     """Cross-topic public discovery with a bounded, rotating free-quota search budget."""
     from googleapiclient.discovery import build
     service=build('youtube','v3',credentials=p.credentials(),cache_discovery=False)
-    cfg=p.read(p.ROOT/'config'/'discovery.json')
+    cfg=policy.discovery_config(p.read(p.ROOT/'config'/'discovery.json'))
     state_path=p.DATA/'discovery-rotation.json'
     state=p.read(state_path) if state_path.exists() else {'next_topic':0}
     topics=cfg['topics']
@@ -90,7 +101,7 @@ def discover_broad():
         queried.append(topic['name'])
         try:
             response=service.search().list(part='snippet',type='video',q=topic['query'],order='viewCount',
-                                           publishedAfter=after,maxResults=20).execute()
+                                           publishedAfter=after,maxResults=20,relevanceLanguage='en').execute()
             for x in response.get('items',[]):
                 vid=x.get('id',{}).get('videoId')
                 if not vid: continue
@@ -98,7 +109,7 @@ def discover_broad():
                 found[vid]=dict(id=vid,title=sn['title'],url='https://www.youtube.com/watch?v='+vid,
                                published=sn['publishedAt'],source=sn['channelTitle'],discovered_via=topic['name'])
         except Exception as exc: errors.append(f"{topic['name']}: {exc}")
-    rows=sorted(found.values(),key=lambda x:x.get('published',''),reverse=True)[:1000]
+    rows=sorted(policy.visible_candidates(list(found.values())),key=lambda x:x.get('published',''),reverse=True)[:1000]
     p.write(old,rows)
     p.write(state_path,{'next_topic':(cursor+budget)%max(1,len(topics)), 'last_topics':queried,
                         'last_scan':now.isoformat(),'errors':errors})

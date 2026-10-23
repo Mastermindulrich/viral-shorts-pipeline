@@ -1,5 +1,6 @@
 """Local, original-audio Shorts production. Python 3.11+, FFmpeg required."""
 import argparse
+from content_policy import MAX_CLIP_SECONDS
 import contextlib
 import datetime as dt
 import hashlib
@@ -47,8 +48,8 @@ def validate(job):
     if not re.fullmatch(r'[a-zA-Z0-9_-]{1,80}', job['id']):
         raise ValueError('id must contain only letters, digits, underscores and hyphens')
     a, b = float(job['start']), float(job['end'])
-    if not all(map(math.isfinite, [a, b])) or a < 0 or not 1 <= b - a <= 180:
-        raise ValueError('Clip must last 1–180 seconds; start must be nonnegative')
+    if not all(map(math.isfinite, [a, b])) or a < 0 or not 1 <= b - a <= MAX_CLIP_SECONDS:
+        raise ValueError('Clip must last 1–60 seconds; start must be nonnegative')
     if not 1 <= len(job['title'].strip()) <= 100:
         raise ValueError('Title must contain 1–100 characters')
     if len(job.get('description', '')) > 4500:
@@ -113,6 +114,7 @@ def render(job):
          '-t', str(job['end']-job['start']), '-map', '0:v:0', '-map', '0:a:0', '-vf', vf,
          '-r', '30', '-c:v', 'libx264', '-preset', 'fast', '-crf', '21', '-pix_fmt', 'yuv420p',
          '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', str(tmp.resolve())], cwd=dest)
+    validate_export_duration(tmp)
     tmp.replace(dest / 'clip.mp4')
     run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str((dest/'clip.mp4').resolve()),
          '-frames:v', '1', str((dest/'cover.jpg').resolve())])
@@ -127,6 +129,12 @@ def render(job):
 def fingerprint(job):
     return hashlib.sha256(json.dumps(job, sort_keys=True).encode()).hexdigest()
 
+def validate_export_duration(path):
+    duration=float(probe(path)['format']['duration'])
+    if not math.isfinite(duration) or duration<=0 or duration>MAX_CLIP_SECONDS:
+        raise ValueError('Rendered clip exceeds the 60-second limit or has an invalid duration. Re-cut it before publishing.')
+
+
 def approve(job, reference):
     validate(job)
     if job.get('needs_editorial_review'):
@@ -136,12 +144,14 @@ def approve(job, reference):
         raise ValueError('Job changed since rendering; render again')
     if not reference.strip():
         raise ValueError('Provide your external clearance reference')
+    validate_export_duration(dest/'clip.mp4')
     write(dest/'approval.json', {'job_sha': fingerprint(job), 'video_sha': digest(dest/'clip.mp4'),
           'clearance_reference': reference, 'approved_at': dt.datetime.now(dt.timezone.utc).isoformat()})
     print('Approved this exact video and metadata')
 
 def check_approval(job):
     validate(job)
+    validate_export_duration(output(job)/'clip.mp4')
     approval = read(output(job)/'approval.json')
     if approval['job_sha'] != fingerprint(job) or approval['video_sha'] != digest(output(job)/'clip.mp4'):
         raise ValueError('Video or metadata changed after approval')
@@ -235,7 +245,7 @@ def upload(job):
             raise ValueError('Scheduled videos must use private privacy')
         status['publishAt'] = job['publish_at']
     body = {'snippet': {'title': job['title'], 'description': job.get('description','') + '\n\nSource: ' + job['source_url'],
-                        'categoryId': '24'}, 'status': status}
+                        'categoryId': '24', 'defaultLanguage': 'en'}, 'status': status}
     write(receipt, {'state': 'uploading', 'day': today, 'job_sha': fingerprint(job)})
     request = service.videos().insert(part='snippet,status', body=body,
         media_body=MediaFileUpload(str(dest/'clip.mp4'), mimetype='video/mp4', resumable=True, chunksize=8*1024*1024))

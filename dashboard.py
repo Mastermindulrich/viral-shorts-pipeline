@@ -5,10 +5,11 @@ import streamlit as st
 import pipeline as p
 import app_runtime as runtime
 import preparation as prep
+import content_policy as policy
 os.chdir(p.ROOT)
 st.set_page_config(page_title='Viral Moment Clips',page_icon='🎬',layout='wide')
 st.title('🎬 Viral Moment Clips')
-st.caption('Find a moment. Make it a story. Publish it.')
+st.caption('English audience · Clips up to 60 seconds · Public publishing')
 for folder in ['inbox','jobs','exports']: (p.DATA/folder).mkdir(parents=True,exist_ok=True)
 
 def launch(action,data=None):
@@ -41,17 +42,22 @@ if st.button('Refresh workspace'): st.rerun()
 find,make,review,published,tools=st.tabs(['1 · Find videos','2 · Make clips','3 · Review & publish','Published','Activity & settings'])
 with find:
     st.subheader('Find promising videos across every topic')
+    st.info('All topics remain eligible. Gaming, hot interviews, movie trailers, music reactions, African urban dance and TikTok dance challenges are included. Official artist music releases are filtered using metadata indicators.')
     st.caption('One scan searches rotating topics and ranks results by available engagement signals. Scores are estimates, not guaranteed views.')
     if st.button('Find and rank videos',type='primary',disabled=busy): launch('scout')
     ranked=p.DATA/'ranked-candidates.json'
     if ranked.exists():
-        for item in p.read(ranked)[:50]:
+        for item in policy.visible_candidates(p.read(ranked))[:50]:
             with st.expander(item['title']):
+                st.caption(item['policy']['language_status'])
                 st.write(item.get('source','')); st.link_button('Watch original',item['url'])
                 st.caption(f"Views: {item.get('views',0):,} · Priority: {item.get('priority_score',0)}")
                 if st.button('Use this video',key='use-'+item['video_id'] if 'video_id' in item else 'use-'+item['url'],disabled=busy):
                     st.session_state['source_link']=item['url']; st.success('Selected. Open 2 · Make clips.')
     else: st.info('Run your first scan, or go directly to Make clips with a video link.')
+    if (p.DATA/'scouting-exclusions.json').exists():
+        with st.expander('Why some sources were excluded'):
+            st.dataframe(p.read(p.DATA/'scouting-exclusions.json'))
 with make:
     st.subheader('Generate a ready-to-review batch')
     mode=st.radio('Start from',['YouTube link','Already imported video'],horizontal=True)
@@ -59,6 +65,10 @@ with make:
     if mode=='YouTube link':
         url=st.text_input('Video link',key='source_link')
         clearance=st.text_input('Permission record',help='For example: your own footage, licence number, or creator permission email.')
+        if st.button('Import only — choose a visual moment afterward',disabled=busy):
+            if not url or not clearance.strip(): st.error('Enter the link and permission record.')
+            else: launch('import',dict(url=url,clearance=clearance))
+        st.caption('For dance or other visual action: import only, then select Already imported video and choose a visual moment manually.')
     else:
         try: catalog=prep.source_catalog() if not busy else []
         except Exception as exc: st.error(str(exc)); catalog=[]
@@ -67,10 +77,22 @@ with make:
             st.link_button('Watch original',source['url']) if source['url'].startswith('https://') else None
             if st.checkbox('Preview full source'): st.video(str(source['path']))
         else: st.info('No sources available, or a task is using the library. Refresh after it finishes.')
+    if source:
+        with st.expander('Choose a visual moment manually — dance, gaming action or trailers'):
+            st.caption('The AI editor selects dialogue. For a visual moment, preview the source and choose the start and end yourself. Keep it understandable to an English-speaking audience.')
+            a,b=st.columns(2)
+            manual_start=a.number_input('Visual clip start (seconds)',min_value=0.,value=0.)
+            manual_end=b.number_input('Visual clip end (seconds)',min_value=1.,value=30.)
+            manual_title=st.text_input('English title for this visual moment',max_chars=100)
+            if st.button('Create visual preview',disabled=busy):
+                if not manual_title.strip() or not 1<=manual_end-manual_start<=60:
+                    st.error('Enter an English title and choose a clip between 1 and 60 seconds.')
+                else: launch('visual',dict(path=str(source['path']),source_url=source['url'],
+                                         start=manual_start,end=manual_end,title=manual_title))
     count=st.slider('Clips to suggest',1,5,3)
     with st.expander('Editing options'):
         captions=st.checkbox('Burn in captions',value=False)
-        st.caption('Uses local Qwen AI to study dialogue and choose complete scenes with supported, curiosity-driven titles. Action and visual reactions need your review.')
+        st.caption('Uses local Qwen AI to study English dialogue and choose complete scenes with supported, curiosity-driven titles. Action and visual reactions need your review.')
     if st.button('Generate clips',type='primary',disabled=busy):
         if mode=='YouTube link':
             if not url or not clearance.strip(): st.error('Enter the link and permission record.')
@@ -91,6 +113,9 @@ with review:
         with st.expander(f"Clip {number:03d} · {job['title']}"):
             st.video(str(path.parent/'clip.mp4'))
             st.caption(f"Source: {job['source_url']} · {job['start']:.1f}–{job['end']:.1f}s")
+            if float(job['end'])-float(job['start'])>60:
+                st.warning('This older draft is longer than 60 seconds and cannot be published. Generate a new batch or choose a shorter visual cut.')
+                continue
             edit=job.get('editorial',{})
             if edit:
                 st.write(edit.get('topic','')); st.write('Why this moment: '+edit.get('why_this_cut',''))
@@ -101,7 +126,7 @@ with review:
                 description=st.text_area('Description',job.get('description',''))
                 audience=st.selectbox('Audience',['Choose…','Not made for kids','Made for kids'])
                 ref=st.text_input('Permission record',value=job.get('clearance_reference',''))
-                watched=st.checkbox('I reviewed the clip, context and title, and approve public publishing.')
+                watched=st.checkbox('I reviewed the clip and title, confirmed English dialogue (or a visual clip understandable without dialogue) and English metadata, and approve public publishing.')
                 save=st.form_submit_button('Save as ready to publish',disabled=busy)
             if save:
                 if not title.strip() or audience=='Choose…' or not ref.strip() or not watched: st.error('Complete the title, audience, permission record and review confirmation.')
