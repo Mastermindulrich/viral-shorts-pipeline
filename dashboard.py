@@ -6,6 +6,7 @@ import pipeline as p
 import app_runtime as runtime
 import preparation as prep
 import content_policy as policy
+import scouting
 os.chdir(p.ROOT)
 st.set_page_config(page_title='Viral Moment Clips',page_icon='🎬',layout='wide')
 st.title('🎬 Viral Moment Clips')
@@ -31,6 +32,10 @@ with st.sidebar:
 @st.fragment(run_every='3s')
 def activity():
     current=runtime.active()
+    # The banner refreshes independently; refresh the whole page on task completion
+    # so controls do not retain the previous disabled state.
+    if (current.get('status')=='running') != busy:
+        st.rerun()
     if current:
         status=current.get('status'); message=current.get('stage',current.get('action',''))
         if status=='running': st.info('Working: '+message+' · You may leave or refresh this page.')
@@ -42,19 +47,34 @@ if st.button('Refresh workspace'): st.rerun()
 find,make,review,published,tools=st.tabs(['1 · Find videos','2 · Make clips','3 · Review & publish','Published','Activity & settings'])
 with find:
     st.subheader('Find promising videos across every topic')
-    st.info('All topics remain eligible. Gaming, hot interviews, movie trailers, music reactions, African urban dance and TikTok dance challenges are included. Official artist music releases are filtered using metadata indicators.')
+    st.info('All topics remain eligible. Gaming, hot interviews, movie trailers, music reactions, African urban dance and TikTok dance challenges are included. Standalone music videos/audio are excluded, including Music-category uploads unless clearly reactions, dance, interviews or trailers.')
     st.caption('One scan searches rotating topics and ranks results by available engagement signals. Scores are estimates, not guaranteed views.')
     if st.button('Find and rank videos',type='primary',disabled=busy): launch('scout')
     ranked=p.DATA/'ranked-candidates.json'
     if ranked.exists():
-        for item in policy.visible_candidates(p.read(ranked))[:50]:
+        saved=p.read(ranked)
+        if any(x.get('policy_version')!=policy.VERSION for x in saved):
+            st.info('Older results are hidden until their metadata is rechecked with the stronger music filter.')
+            if st.button('Recheck saved results',disabled=busy): launch('rescreen')
+        visible=scouting.visible_ranked(saved)
+        st.caption(f'{len(visible)} results after filtering. Hidden videos stay hidden on future scans.')
+        for item in visible[:50]:
             with st.expander(item['title']):
                 st.caption(item['policy']['language_status'])
                 st.write(item.get('source','')); st.link_button('Watch original',item['url'])
                 st.caption(f"Views: {item.get('views',0):,} · Priority: {item.get('priority_score',0)}")
-                if st.button('Use this video',key='use-'+item['video_id'] if 'video_id' in item else 'use-'+item['url'],disabled=busy):
+                if st.button('Use this video',key='use-'+item['video_id'] if 'video_id' in item else 'use-'+item['url']):
                     st.session_state['source_link']=item['url']; st.success('Selected. Open 2 · Make clips.')
+                if st.button('Hide this video',key='hide-'+item['id'],disabled=busy):
+                    scouting.hide_video(item); st.rerun()
     else: st.info('Run your first scan, or go directly to Make clips with a video link.')
+    hidden=scouting.hidden_videos()
+    if hidden:
+        with st.expander(f'Hidden videos ({len(hidden)})'):
+            for ident,record in hidden.items():
+                st.write(record['title'])
+                if st.button('Restore to scouting',key='restore-'+ident,disabled=busy):
+                    scouting.restore_video(ident); st.rerun()
     if (p.DATA/'scouting-exclusions.json').exists():
         with st.expander('Why some sources were excluded'):
             st.dataframe(p.read(p.DATA/'scouting-exclusions.json'))

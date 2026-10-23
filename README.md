@@ -256,3 +256,19 @@ caption-render test runs only when the filter is available; its explicit skip do
 not skip any core tests. Future test failures name the failing test in Activity,
 with full output in `data/logs/update-checks.log`. The updater still rolls back on
 core failures or on caption-render failures when support is advertised.
+
+### Stronger music exclusion and manual hiding
+
+Scouting now excludes standalone music releases from any channel, including videos
+in YouTube's Music category unless their titles clearly indicate an allowed reaction,
+interview, dance/choreography or trailer format. MV/M/V, visualizers, lyrics and
+music/audio-release labels are screened too. Genre words such as amapiano and a song
+title containing "dance" no longer exempt an ordinary music release. Metadata remains
+imperfect, so this filter can exclude ambiguous videos and occasionally miss releases.
+
+Old ranked results are withheld until they have been enriched and checked against
+the current policy. After updating, use **Find videos → Recheck saved results**, or
+run **Find and rank videos** for new discoveries. **Hide this video** saves a durable
+exclusion by video ID; it remains excluded from future discovery and ranking. Restore
+an individually hidden video under **Hidden videos** if needed. Hiding does not delete
+any imported file, existing clip, or YouTube upload.

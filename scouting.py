@@ -7,6 +7,31 @@ import pipeline as p
 import content_policy as policy
 
 
+def hidden_videos():
+    path=p.DATA/'scouting-hidden.json'
+    return p.read(path) if path.exists() else {}
+
+
+def hide_video(item):
+    ident=item['id']
+    with p.lock():
+        hidden=hidden_videos()
+        hidden[ident]={'title':item.get('title',ident),'hidden_at':dt.datetime.now(dt.timezone.utc).isoformat()}
+        p.write(p.DATA/'scouting-hidden.json',hidden)
+
+
+def restore_video(ident):
+    with p.lock():
+        hidden=hidden_videos();hidden.pop(ident,None)
+        p.write(p.DATA/'scouting-hidden.json',hidden)
+
+
+def visible_ranked(items):
+    hidden=hidden_videos()
+    current=[x for x in items if x.get('policy_version')==policy.VERSION and x['id'] not in hidden]
+    return policy.visible_candidates(current)
+
+
 def duration_seconds(value):
     m=re.fullmatch(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?',value or '')
     return sum(int(v or 0)*w for v,w in zip(m.groups(),(3600,60,1))) if m else None
@@ -38,12 +63,14 @@ def refresh():
     from googleapiclient.discovery import build
     service=build('youtube','v3',credentials=p.credentials(),cache_discovery=False)
     candidates=p.read(p.DATA/'candidates.json')
-    lookup={x['id']:x for x in candidates}
+    hidden=hidden_videos()
+    lookup={x['id']:x for x in candidates if x['id'] not in hidden}
     items=[]; excluded=[]
     ids=list(lookup)
     for offset in range(0,len(ids),50):
         response=service.videos().list(part='snippet,statistics,contentDetails',id=','.join(ids[offset:offset+50])).execute()
         for item in response.get('items',[]):
+            if item['id'] not in lookup: continue
             secs=duration_seconds(item.get('contentDetails',{}).get('duration'))
             if secs is None or item['snippet'].get('liveBroadcastContent') in ('live','upcoming'): continue
             snippet=item['snippet']
@@ -55,7 +82,7 @@ def refresh():
             if not decision['eligible']:
                 excluded.append(dict(id=item['id'],title=candidate['title'],reason=decision['reason']))
                 continue
-            items.append(dict(candidate,policy=decision,published=snippet['publishedAt'],duration_seconds=secs,
+            items.append(dict(candidate,policy=decision,policy_version=policy.VERSION,published=snippet['publishedAt'],duration_seconds=secs,
                               views=int(item.get('statistics',{}).get('viewCount',0)),
                               likes=int(item.get('statistics',{}).get('likeCount',0))))
     snapshot=p.DATA/'scout-snapshot.json'
@@ -109,7 +136,8 @@ def discover_broad():
                 found[vid]=dict(id=vid,title=sn['title'],url='https://www.youtube.com/watch?v='+vid,
                                published=sn['publishedAt'],source=sn['channelTitle'],discovered_via=topic['name'])
         except Exception as exc: errors.append(f"{topic['name']}: {exc}")
-    rows=sorted(policy.visible_candidates(list(found.values())),key=lambda x:x.get('published',''),reverse=True)[:1000]
+    hidden=hidden_videos()
+    rows=sorted(policy.visible_candidates([x for x in found.values() if x['id'] not in hidden]),key=lambda x:x.get('published',''),reverse=True)[:1000]
     p.write(old,rows)
     p.write(state_path,{'next_topic':(cursor+budget)%max(1,len(topics)), 'last_topics':queried,
                         'last_scan':now.isoformat(),'errors':errors})

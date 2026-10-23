@@ -29,6 +29,41 @@ class ContentPolicyTests(unittest.TestCase):
         for item,expected in examples:
             with self.subTest(item=item): self.assertEqual(policy.screen(item)['eligible'],expected)
 
+    def test_strict_music_screen_catches_unlabelled_and_nonofficial_releases(self):
+        for item in [dict(title='A new single',source='Unknown label',categoryId='10'),
+                     dict(title='Singer - Track M/V',source='Label'),
+                     dict(title='Track (Visualizer)',source='Fan channel'),
+                     dict(title='Singer - Reaction (Official Video)',categoryId='10'),
+                     dict(title='Amapiano summer mix',categoryId='10'),
+                     dict(title='Artist - Dance Tonight',categoryId='10'),
+                     dict(title='Track',description='Provided to YouTube by Label')]:
+            with self.subTest(item=item): self.assertFalse(policy.screen(item)['eligible'])
+        for title in ['Song (Official Video) REACTION','First time hearing Song (Official Audio)',
+                      'TikTok dance challenge','African urban dance battle','Singer interview']:
+            with self.subTest(title=title):
+                self.assertTrue(policy.screen(dict(title=title,categoryId='10'))['eligible'])
+
+    def test_old_cache_hidden_until_metadata_checked_and_hidden_ids_persist(self):
+        with tempfile.TemporaryDirectory() as td,patch.object(p,'DATA',Path(td)):
+            old=dict(id='old',title='Unknown cached video')
+            current=dict(id='current',title='Interview',policy_version=policy.VERSION)
+            self.assertEqual(scouting.visible_ranked([old,current]),[dict(current,policy=policy.screen(current))])
+            scouting.hide_video(current)
+            self.assertEqual(scouting.visible_ranked([current]),[])
+            self.assertIn('current',p.read(p.DATA/'scouting-hidden.json'))
+            scouting.restore_video('current')
+            self.assertEqual(len(scouting.visible_ranked([current])),1)
+
+    def test_hidden_video_is_not_requested_on_refresh(self):
+        service=MagicMock()
+        modules={'googleapiclient':types.ModuleType('googleapiclient'),'googleapiclient.discovery':types.SimpleNamespace(build=lambda *a,**k:service)}
+        with tempfile.TemporaryDirectory() as td,patch.object(p,'DATA',Path(td)),patch.object(p,'credentials',return_value=None),patch.dict('sys.modules',modules):
+            item=dict(id='hidden',title='Hidden release')
+            p.write(p.DATA/'candidates.json',[item])
+            scouting.hide_video(item)
+            self.assertEqual(scouting.refresh(),[])
+            service.videos.assert_not_called()
+
     def test_missing_language_is_not_claimed_english(self):
         self.assertEqual(policy.screen({'title':'Interview','defaultLanguage':'en'})['language_status'],'Language needs verification')
 

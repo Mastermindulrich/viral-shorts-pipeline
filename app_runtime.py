@@ -63,6 +63,10 @@ def execute(request):
                 import scouting
                 stage('Searching across topics'); scouting.discover_broad()
                 stage('Ranking sources'); scouting.refresh()
+            elif action=='rescreen':
+                import scouting
+                stage('Rechecking saved videos with current music and language filters')
+                scouting.refresh()
             elif action=='import':
                 import preparation as prep
                 stage('Importing source for visual selection')
