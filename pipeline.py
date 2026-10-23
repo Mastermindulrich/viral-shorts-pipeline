@@ -145,12 +145,16 @@ def check_approval(job):
     if not approval.get('clearance_reference', '').strip():
         raise ValueError('Missing external clearance reference')
 
-SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
+SCOPES = ['https://www.googleapis.com/auth/youtube.upload',
+          'https://www.googleapis.com/auth/youtube.readonly']
 
 def credentials():
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
     path = DATA/'secrets'/'token.json'
+    saved = read(path)
+    if not set(SCOPES).issubset(set(saved.get('scopes', []))):
+        raise ValueError('Channel verification needs read-only permission. Run: python pipeline.py auth')
     creds = Credentials.from_authorized_user_file(str(path), SCOPES)
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
@@ -163,7 +167,7 @@ def credentials():
 def auth():
     from google_auth_oauthlib.flow import InstalledAppFlow
     flow = InstalledAppFlow.from_client_secrets_file(str(DATA/'secrets'/'client_secret.json'), SCOPES)
-    creds = flow.run_local_server(port=0)
+    creds = flow.run_local_server(port=0, prompt='consent select_account')
     path = DATA/'secrets'/'token.json'
     write(path, json.loads(creds.to_json()))
     path.chmod(0o600)
@@ -183,6 +187,24 @@ def lock():
     finally:
         path.unlink(missing_ok=True)
 
+def verify_channel(service, expected):
+    if not expected:
+        raise ValueError('Set expected_channel_id before uploading')
+    items = service.channels().list(part='snippet', mine=True).execute().get('items', [])
+    if len(items) != 1 or items[0]['id'] != expected:
+        names = ', '.join(x.get('snippet', {}).get('title', x['id']) for x in items)
+        raise ValueError(f'Upload blocked: connected to {names or "no channel"}. Reauthorize the intended channel.')
+    return {'id': items[0]['id'], 'name': items[0]['snippet']['title']}
+
+
+def channel():
+    from googleapiclient.discovery import build
+    service = build('youtube', 'v3', credentials=credentials(), cache_discovery=False)
+    result = verify_channel(service, read(ROOT/'config'/'settings.json').get('expected_channel_id'))
+    print(json.dumps(result))
+    return result
+
+
 def upload(job):
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
@@ -198,6 +220,7 @@ def upload(job):
     if sum(x.get('day') == today for x in attempts) >= settings['max_uploads_per_day']:
         raise ValueError('Daily upload cap reached (UTC)')
     service = build('youtube', 'v3', credentials=credentials(), cache_discovery=False)
+    verify_channel(service, settings.get('expected_channel_id'))
     status = {'privacyStatus': job.get('privacy', 'private'), 'selfDeclaredMadeForKids': job['made_for_kids']}
     if job.get('publish_at'):
         when = dt.datetime.fromisoformat(job['publish_at'].replace('Z', '+00:00'))
@@ -289,6 +312,7 @@ def main():
             sp.add_argument('--clearance-ref', required=True)
     sub.add_parser('discover')
     sub.add_parser('auth')
+    sub.add_parser('channel')
     sp = sub.add_parser('transcribe')
     sp.add_argument('input'); sp.add_argument('--model', default='base')
     sp = sub.add_parser('suggest'); sp.add_argument('transcript')
@@ -305,6 +329,7 @@ def main():
                 render(read(path))
         elif args.command == 'discover': discover()
         elif args.command == 'auth': auth()
+        elif args.command == 'channel': channel()
         elif args.command == 'transcribe': transcribe(args.input, args.model)
         elif args.command == 'suggest': suggest(args.transcript)
 

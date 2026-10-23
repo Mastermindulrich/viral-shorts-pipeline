@@ -16,7 +16,7 @@ Original-video clips with original audio. No narration. Optional captions. Runs 
 
 ## Current limits
 
-This is an initial working foundation, not an autonomous channel already producing revenue. No real content has been uploaded. Source feeds and Google access need configuration. Highlight suggestions are a simple heuristic, not an AI virality prediction. Source ingestion, final clip selection, titles and descriptions currently require editorial input. There is no face tracking, automatic thumbnail upload or analytics integration yet. The source list starts empty.
+This is an initial working foundation, not an autonomous channel already producing revenue. The owner has completed a private test upload to Viral Moment Clips. Source feeds and Google access need configuration. Highlight suggestions are a simple heuristic, not an AI virality prediction. Source ingestion, final clip selection, titles and descriptions currently require editorial input. There is no face tracking, automatic thumbnail upload or analytics integration yet. The source list starts empty.
 
 The owner handles content permissions outside this project. The pipeline records the owner's clearance reference; it does not verify licensing. Downloadability does not itself establish rights. Pure clipping may be ineligible for YouTube monetization even with permission.
 
@@ -80,7 +80,7 @@ Add actual source channel IDs (not handles) to `config/sources.json`:
 4. Run `python pipeline.py auth` on your computer and complete Google's authorization screen, verifying the intended channel. Credentials remain local; do not paste them into chat or GitHub.
 5. Run `python pipeline.py upload data/jobs/first-clip.json` for a private test. Verify the destination in YouTube Studio before public operation.
 
-The application requests only the YouTube upload scope. Testing-mode OAuth tokens may expire and require consent again. Account restrictions, project verification and API quotas can affect publishing; validate actual scheduling before relying on it. No live OAuth or upload test has been performed without the owner's account.
+The application requests YouTube upload and read-only scopes. Read-only permission is used to verify the channel before every upload. Older tokens require reauthorization. Testing-mode OAuth tokens may expire and require consent again. Account restrictions, project verification and API quotas can affect publishing; validate actual scheduling before relying on it. No live OAuth or upload test has been performed without the owner's account.
 
 To schedule publication, use `"privacy":"private"` and a future ISO timestamp with timezone, for example `"publish_at":"2030-01-01T12:00:00-05:00"`. Re-render and approve after editing. For immediate public publication use `"privacy":"public"` without `publish_at`.
 
@@ -108,4 +108,26 @@ Tests exercise real FFmpeg export with generated video/audio, caption offsets, a
 
 ## Next milestones
 
-First real clip and private upload; approved source ingestion; better source ranking and clip selection; review queue controls; channel performance feedback. No paid infrastructure has been provisioned.
+Approved source ingestion; better source ranking and clip selection; review queue controls; channel performance feedback. No paid infrastructure has been provisioned.
+
+
+## Local control panel (new)
+
+Update and launch from the repository folder:
+
+```sh
+git pull --ff-only
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python pipeline.py auth
+python pipeline.py channel
+python -m streamlit run dashboard.py --server.address 127.0.0.1 --browser.gatherUsageStats false
+```
+
+The one-time authorization now includes read-only YouTube access so uploads can verify the connected channel. Choose Viral Moment Clips. `channel` must print that name and ID `UC66Gf5TgUNxGHM7DbPUqrSw`. The upload function fails closed on missing permissions or a different channel before creating an upload reservation. The default expected ID is configured in `config/settings.json` for this project.
+
+After installing, use `bash Launch.command` or double-click the executable launcher. The panel binds only to the local computer. Keep the terminal open while using it; Ctrl+C stops it. Do not expose it to a public network.
+
+Create clips from existing files in `data/inbox`, review previews in the queue, choose visibility and optional future publication time, enter your external clearance reference and approve. A separate Upload button sends an approved clip. Google credentials stay in the existing local secrets folder. Source discovery supports adding creator channel IDs and browsing recent uploads. No automatic downloading, autonomous editorial selection, local transcription buttons or background scheduling have been added to the panel yet.
+
+The panel preserves the original audio and does not generate narration. Creating a preview does not upload it. Existing exports and upload receipts remain in place on update. Dates for scheduled uploads must include a timezone and require private visibility.

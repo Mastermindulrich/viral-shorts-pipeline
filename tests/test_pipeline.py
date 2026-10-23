@@ -2,7 +2,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import pipeline as p
 
 class PipelineTests(unittest.TestCase):
@@ -45,6 +45,19 @@ class PipelineTests(unittest.TestCase):
             p.check_approval(dict(self.job,title='Changed'))
         with (dest/'clip.mp4').open('ab') as f: f.write(b'changed')
         with self.assertRaises(ValueError): p.check_approval(self.job)
+    def test_channel_guard(self):
+        service = MagicMock()
+        service.channels.return_value.list.return_value.execute.return_value = {
+            'items':[{'id':'wrong', 'snippet':{'title':'Late Night'}}]}
+        with self.assertRaisesRegex(ValueError, 'Upload blocked'):
+            p.verify_channel(service,'expected')
+        service.channels.return_value.list.return_value.execute.return_value = {
+            'items':[{'id':'expected', 'snippet':{'title':'Viral Moment Clips'}}]}
+        self.assertEqual(p.verify_channel(service,'expected')['name'],'Viral Moment Clips')
+        service.channels.return_value.list.return_value.execute.return_value = {'items':[]}
+        with self.assertRaises(ValueError): p.verify_channel(service,'expected')
+        with self.assertRaises(ValueError): p.verify_channel(service,'')
+
     def test_lock_rejects_concurrent_worker(self):
         with p.lock():
             with self.assertRaises(RuntimeError):
