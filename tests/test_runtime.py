@@ -41,3 +41,44 @@ class RuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(r,'LOG',Path(folder)/'activity.log'), \
              patch.object(r,'stage'), patch('builtins.print'), patch.object(r.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout='OK (skipped=1)')):
             r.run_update_checks()
+
+
+class ResilienceTests(unittest.TestCase):
+    def test_retry_recovers_from_transient_failure(self):
+        calls=[]
+        def flaky():
+            calls.append(1)
+            if len(calls)<3: raise ConnectionError('connection reset by peer')
+            return 'ok'
+        with patch.object(r,'stage'):
+            self.assertEqual(r.retry(flaky,'Test',sleep=lambda s:None),'ok')
+        self.assertEqual(len(calls),3)
+
+    def test_retry_never_repeats_policy_errors(self):
+        calls=[]
+        def blocked():
+            calls.append(1); raise ValueError('Music video excluded')
+        with patch.object(r,'stage'), self.assertRaises(ValueError):
+            r.retry(blocked,'Test',sleep=lambda s:None)
+        self.assertEqual(len(calls),1)
+
+    def test_retry_gives_up_after_attempts(self):
+        def down(): raise TimeoutError('timed out')
+        with patch.object(r,'stage'), self.assertRaises(TimeoutError):
+            r.retry(down,'Test',attempts=2,sleep=lambda s:None)
+
+    def test_auto_requires_saved_permission_record(self):
+        import studio
+        with patch.object(studio,'preferences',return_value=dict(clearance='')), self.assertRaises(ValueError):
+            r.auto_batch()
+
+    def test_reconcile_marks_matching_upload_without_reuploading(self):
+        with tempfile.TemporaryDirectory() as folder:
+            data=Path(folder); dest=data/'exports'/'job1'
+            p.write(dest/'job.json',dict(title='Big moment'))
+            p.write(dest/'upload.json',dict(state='uploading',attempted_at='2026-10-29T10:00:00+00:00'))
+            recent=[dict(id='abc',title='Big moment',published='2026-10-29T10:05:00Z')]
+            with patch.object(p,'DATA',data), patch.object(p,'recent_uploads',return_value=recent):
+                self.assertEqual(p.reconcile_receipts(),1)
+                receipt=p.read(dest/'upload.json')
+            self.assertEqual((receipt['state'],receipt['video_id']),('uploaded','abc'))
