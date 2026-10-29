@@ -1,274 +1,153 @@
-# Viral Shorts Pipeline
-
-Original-video clips with original audio. No narration. Optional captions. Runs locally with Python 3.11+ and FFmpeg; no paid APIs or hosting. Your computer must remain awake for scheduled work. Electricity, disk space and bandwidth are still required.
-
-## Implemented
-
-- Recent-source discovery from configured YouTube RSS feeds, with SQLite deduplication.
-- Optional local CPU transcription using faster-whisper.
-- Rough, sentence-aligned 20–50 second speech-window suggestions.
-- Batch MP4 exports: 1080×1920, original audio, fit or center-crop, optional burned captions.
-- Cover-frame JPEG and local HTML video preview.
-- External clearance reference and approval bound to the exact video bytes and metadata.
-- Google OAuth upload, default private, with optional future publication time.
-- Three upload attempts per UTC day, durable upload receipts and concurrent-worker protection.
-- Local scheduled worker for discovery, rendering, and optionally uploading approved jobs.
-
-## Current limits
-
-This is an initial working foundation, not an autonomous channel already producing revenue. The owner has completed a private test upload to Viral Moment Clips. Source feeds and Google access need configuration. Highlight suggestions are a simple heuristic, not an AI virality prediction. Source ingestion, final clip selection, titles and descriptions currently require editorial input. There is no face tracking, automatic thumbnail upload or analytics integration yet. The source list starts empty.
-
-The owner handles content permissions outside this project. The pipeline records the owner's clearance reference; it does not verify licensing. Downloadability does not itself establish rights. Pure clipping may be ineligible for YouTube monetization even with permission.
-
-## Install on your computer
-
-Install Python 3.11+ and FFmpeg/ffprobe from their official sources or a trusted package manager. FFmpeg must include libass for captions.
-
-```sh
-git clone https://github.com/Mastermindulrich/viral-shorts-pipeline.git
-cd viral-shorts-pipeline
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-mkdir -p data/inbox data/jobs data/secrets
-```
-
-Run commands from this folder. All source media, secrets, approvals and exports stay under `data/`, ignored by Git. The repository is public: never commit private material or credentials. Place a source video obtained through your separate content-permissions process in `data/inbox/source.mp4`. This version does not download arbitrary online videos.
-
-## Render actual video clips
-
-Copy `config/job.example.json` to `data/jobs/first-clip.json`. Set local input path, source reference, start/end seconds, accurate title, description and audience declaration. `fit` preserves the complete frame with black padding; `crop` uses a center crop that must be checked for lost faces or action.
-
-```sh
-python pipeline.py render data/jobs/first-clip.json
-python pipeline.py batch data/jobs
-```
-
-Open `data/exports/first-clip/review.html` to watch the export. `cover.jpg` is a first-frame image for review; this version does not automatically set a YouTube Shorts thumbnail.
-
-Optional local transcription and speech-window suggestions:
-
-```sh
-python -m pip install -r requirements-transcription.txt
-python pipeline.py transcribe data/inbox/source.mp4 --model base
-python pipeline.py suggest data/transcripts/source.json
-```
-
-The first transcription downloads free model weights. Add `"transcript": "data/transcripts/source.json"` to a job for burned captions. Transcript timestamps refer to the full source; the renderer trims and offsets them. Suggestions in `data/suggestions.json` need editorial selection and conversion into jobs. Inspect caption accuracy, context, timing and framing before approval.
-
-```sh
-python pipeline.py approve data/jobs/first-clip.json --clearance-ref "my-external-clearance-record"
-```
-
-Any video or metadata change invalidates approval. Re-rendering removes previous approval. This is workflow tracking, not legal verification.
-
-## Discovery
-
-Add actual source channel IDs (not handles) to `config/sources.json`:
-
-```json
-[{"name":"Selected creator", "channel_id":"UC_REPLACE_WITH_REAL_CHANNEL_ID"}]
-```
-
-`python pipeline.py discover` stores up to 100 recent candidates in `data/candidates.json`, with deduplication in `data/discovery.sqlite3`. RSS provides recent uploads, not view velocity or exhaustive trends. A candidate is not automatically downloaded, cleared or published.
-
-## YouTube authorization
-
-1. Create or select the intended YouTube channel in your Google account.
-2. In Google Cloud Console create a project and enable YouTube Data API v3. Configure an OAuth consent screen; if external and testing, add your Google account as a test user.
-3. Create a Desktop app OAuth client. Save its JSON locally at `data/secrets/client_secret.json`.
-4. Run `python pipeline.py auth` on your computer and complete Google's authorization screen, verifying the intended channel. Credentials remain local; do not paste them into chat or GitHub.
-5. Run `python pipeline.py upload data/jobs/first-clip.json` for a private test. Verify the destination in YouTube Studio before public operation.
-
-The application requests YouTube upload and read-only scopes. Read-only permission is used to verify the channel before every upload. Older tokens require reauthorization. Testing-mode OAuth tokens may expire and require consent again. Account restrictions, project verification and API quotas can affect publishing; validate actual scheduling before relying on it. No live OAuth or upload test has been performed without the owner's account.
-
-To schedule publication, use `"privacy":"private"` and a future ISO timestamp with timezone, for example `"publish_at":"2030-01-01T12:00:00-05:00"`. Re-render and approve after editing. For immediate public publication use `"privacy":"public"` without `publish_at`.
-
-A durable `upload.json` reservation is written before the upload starts. Ambiguous failures block automatic retries to prevent duplicates. Inspect YouTube Studio before removing a failed reservation. Daily caps count attempts, including failures. Caps are local, not shared across separate computers.
-
-## Scheduled operation
-
-`python worker.py` discovers sources and renders queued jobs. `python worker.py --publish` additionally uploads approved exports. It never approves a video. Jobs are processed in filename order; absent `publish_at`, they may upload as a batch rather than evenly spaced.
-
-Use your operating system's scheduler. macOS/Linux cron example, replacing both absolute paths:
-
-```cron
-0 * * * * cd /absolute/path/viral-shorts-pipeline && /absolute/path/viral-shorts-pipeline/.venv/bin/python worker.py --publish >> data/worker.log 2>&1
-```
-
-The machine must stay awake. Remove `--publish` to pause publishing. A local lock blocks simultaneous commands; after a crash, inspect running processes before removing stale `data/worker.lock`. No background worker is started just by cloning the project.
-
-## Test
-
-```sh
-python -m unittest discover -s tests -v
-```
-
-Tests exercise real FFmpeg export with generated video/audio, caption offsets, approval invalidation and lock protection. CI does not authorize Google or upload videos.
-
-## Next milestones
-
-Approved source ingestion; better source ranking and clip selection; review queue controls; channel performance feedback. No paid infrastructure has been provisioned.
-
-
-## Local control panel (new)
-
-Update and launch from the repository folder:
-
-```sh
-git pull --ff-only
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python pipeline.py auth
-python pipeline.py channel
-python -m streamlit run dashboard.py --server.address 127.0.0.1 --browser.gatherUsageStats false
-```
-
-The one-time authorization now includes read-only YouTube access so uploads can verify the connected channel. Choose Viral Moment Clips. `channel` must print that name and ID `UC66Gf5TgUNxGHM7DbPUqrSw`. The upload function fails closed on missing permissions or a different channel before creating an upload reservation. The default expected ID is configured in `config/settings.json` for this project.
-
-After installing, use `bash Launch.command` or double-click the executable launcher. The panel binds only to the local computer. Keep the terminal open while using it; Ctrl+C stops it. Do not expose it to a public network.
-
-Create clips from existing files in `data/inbox`, review previews in the queue, choose visibility and optional future publication time, enter your external clearance reference and approve. A separate Upload button sends an approved clip. Google credentials stay in the existing local secrets folder. Source discovery supports adding creator channel IDs and browsing recent uploads. No automatic downloading, autonomous editorial selection, local transcription buttons or background scheduling have been added to the panel yet.
-
-The panel preserves the original audio and does not generate narration. Creating a preview does not upload it. Existing exports and upload receipts remain in place on update. Dates for scheduled uploads must include a timezone and require private visibility.
-
-
-## Source importing and automatic draft batches
-
-Install optional local tools with `python -m pip install -r requirements-preparation.txt`, then restart the dashboard. In Source discovery, Add starter research channels merges three initial creators without replacing your list. These are candidates for research, not licensed partners or recommendations to repost without clearance.
-
-The Prepare a batch tab imports a single HTTPS YouTube video with your external clearance reference, capped at 1080p, excluding active live streams and sources longer than three hours. It does not use browser cookies or bypass access controls. Download availability depends on YouTube and yt-dlp; authentication, bot checks, JavaScript runtime requirements or source restrictions may prevent downloads. A failed import can be replaced by a local source file in data/inbox. Imported sources are reused rather than downloaded again when their receipt and file exist.
-
-Choose a local or imported video, select up to five drafts, and run local CPU transcription. The first run downloads free model weights. Speech-window selection favors coherent spoken sentences; it is not a reliable predictor of viral performance and cannot identify silent action highlights. Suggested titles are transcript excerpts and must be edited. Drafts default private and have an editorial hold: review and save title, description and audience setting in Review queue before approval. No draft is automatically uploaded.
-
-Captions are off by default because the owner's installed FFmpeg may lack libass. Enable captions only if `ffmpeg -filters` lists subtitles. Original source audio is retained. This release has not been validated against live source downloads or a full speech-model inference on the owner's Mac; the local import/transcription test is the next milestone.
-
-
-## Editorial upgrade: complete scenes and evidence-based titles
-
-The dashboard now defaults to Story editor. Install the free local Ollama application from https://ollama.com/download and download a local model with `ollama pull qwen2.5:7b`. Keep Ollama running. This model requires several GB of storage and sufficient memory; smaller local models may work but need their own quality validation. Nothing in this integration calls a paid cloud API. Downloading weights needs internet; inference happens at 127.0.0.1:11434. Existing transcription remains local.
-
-The editor reads the full transcript in overlapping sections, summarizes each section, proposes complete 15–90 second scenes with setup and payoff, and compares candidates using the whole-video topic map. It requests a main title, two alternatives, a scene topic, cut rationale, and a supporting transcript quote. Programmatic validation rejects out-of-range boundaries, unsupported numeric title strings, missing evidence quotes and weak model-rated coherence/payoff. These checks do not prove truth or eliminate hallucinations: reviewers must still verify names, factual implications, quote meaning and the actual video. Visual reactions are not inferred from frames in this release.
-
-A local model is an editorial assistant, not a predictor of views. Strong curiosity-driven titles must describe the specific moment. No claims of bank balances from net worth, no invented identities, no fictional reactions. The review queue shows title alternatives, transcript evidence, setup, payoff and cut rationale. It still requires metadata review and approval before uploads. Old basic drafts/approvals remain unchanged; semantic drafts use story-v1 IDs and remain unapproved. Repeated runs reuse an existing semantic job rather than overwriting edits. Basic mode is explicitly labeled; if the AI editor fails it reports the error rather than silently using basic cuts.
-
-Source scouting now has a Rank sources button. It batches video statistics and duration lookups and highlights 90-second to three-hour sources. Priority combines log views/hour and relative performance against the creator's retrieved sample median. On the first scan, views/hour means lifetime average since upload; actual measured growth becomes available after snapshots at least 15 minutes apart. This is a transparent experimental prioritization score, not a virality probability, earnings estimate, or permission check. No automatic public posting is enabled.
-
-This release was tested with mocked model/API responses and real synthetic FFmpeg rendering. A live model run on the owner's Mac and a before/after editorial review on a real source are still required before claiming better clip quality.
-
-
-## Topic-agnostic discovery
-
-Scout across topics merges the public mostPopular chart from three configurable regions with four rotating searches among 18 topic families: politics, dance, celebrities, soccer, basketball, news, Hollywood, finance, geopolitics, culture, debates, music, comedy, other sports, science/technology, human stories, lifestyle and gaming. Topics guide coverage, not preference in ranking. Queries cover uploads from the preceding three days ordered by view count. Run Rank sources afterward to retrieve growth signals and duration. Rotation state is saved locally and the most recent 1,000 candidates retained, deduplicated by video ID.
-
-This is a quota-bounded sample, not coverage of every topic on every scan or every platform. Popular charts may omit topics and depend on YouTube availability. Queries currently use English and charts default to US, GB and CA; edit config/discovery.json for other regions or query languages. Four search calls plus up to three chart calls per scan are bounded in code; API daily quota exhaustion can still occur after repeated scans. Errors are shown with partial results retained. Traditional creator-feed discovery replaces the candidate file; run broad scouting afterward to merge additional results.
-
-Prioritization has no positive or negative category weight. It ranks measured growth or lifetime average views/hour with sample-relative performance; that is an experimental proxy for audience interest, not a prediction of clicks. Speech-only semantic clipping is unsuitable for silent dance/sports/action moments without visual editorial review. No visual scene understanding or automatic publishing is claimed in this release.
-
-## Guided studio and Mac launcher
-
-The main dashboard now follows **Find videos → Make clips → Review & publish → Published**.
-A single Generate clips task imports a source, transcribes speech, selects scenes,
-writes titles and renders previews. Tasks run as separate local processes; refreshing
-or closing the browser does not cancel them. Activity and diagnostics persist in
-`data/logs/activity.log`. Review each clip once, then publish individually or as a
-selected batch. Newly approved publishing uses **public immediately**. Previous
-uploads are not modified, and old approvals must be reviewed again to change visibility.
-YouTube processing and account restrictions can delay availability.
-
-### One-time installation on your Mac
-
-Stop the old Streamlit terminal with Control+C before installation. From the project:
+# Viral Moment Clips
+
+A local Shorts studio: discover promising YouTube sources, select complete moments,
+create English captions, review and publish. Original sound only; no narration.
+Every exported clip must be 60 seconds or less. The dashboard publishes approved
+clips **public immediately**; YouTube processing or channel restrictions can delay playback.
+
+## Daily workflow
+
+1. Open **Viral Moment Clips.app** from your Mac Applications folder.
+2. In **Find videos**, click **Find and rank videos**. Each round shows up to **10 choices**.
+3. Pick **Generate clips from this video** if you saved an applicable permission
+   reference. Otherwise choose **Use this video**, then **Make clips**, enter the
+   permission reference and click **Generate clips**.
+4. Open **Review & publish**, watch the preview, check the title, captions and
+   audience, tick the review confirmation and click **Approve & publish now**.
+   You can also save approvals and publish a selected batch.
+5. **Published** defaults to today's uploads. Choose a particular day, month, year,
+   all dates, or search titles. Dates use America/Toronto by default; change that
+   under **Activity & settings**.
+
+The Mac must stay awake and Ollama must be running with `qwen2.5:7b` installed.
+Tasks continue if the browser is closed or refreshed. The first use of a new
+transcription model downloads its free weights; transcription on a long source
+and the extra editorial review can take several minutes or longer.
+
+## Recent discovery and momentum
+
+Defaults: uploads from the last **3 days**, at least **5,000 views**, at least
+**200 views/hour**, and a preference for independent uploads. Save different
+settings in **Find videos → Discovery filters**. Filter choices are stored in
+`data/scouting-preferences.json`, so existing local config files stay intact.
+
+Included categories cover Champions League/football, exceptional sports moments,
+athlete controversies, influencer life, streamers, unexpected incidents, fan movie
+cuts, engineering hacks, celebrity fashion/red carpet/paparazzi footage, gaming,
+interviews, African urban dance, TikTok dance challenges, trailers and music reactions.
+Previous broad categories remain available in the filter chooser. An empty category
+selection means all categories. Standalone music releases remain excluded, including
+Music-category uploads unless they clearly match an allowed editorial/visual format.
+
+- Ranking combines recent views/hour or measured growth, freshness, engagement and
+  sample-relative source performance. Measured growth needs two observations at least
+  15 minutes apart; before that, the UI explicitly labels the lifetime average.
+- A scan searches up to four rotating categories/event queries and checks popular
+  charts. Date-sorted searches alternate with view-count-sorted searches. Additional
+  scans rotate through your selected topics. API quotas still apply.
+- Shortlists show up to ten qualifying videos, with no more than two per channel and
+  no identical titles. The list may contain fewer than ten; weak matches are not added
+  merely to fill it. Scores are source signals, not predictions of Shorts performance.
+- Official/independent classification uses channel-name clues. It is **not verified
+  ownership**. Choose Prefer independent, Any source, or Exclude likely official;
+  block exact channel names/IDs and exclude unwanted words when necessary.
+- Add optional **Specific events to follow**, one query per line. One event query is
+  included per scan and rotates through the list. Include/exclude keywords are
+  comma-separated phrases. An event query still obeys language, music, date and
+  momentum filters.
+- Discovery is through **YouTube**; TikTok/streamer content means videos available
+  there, not direct access to TikTok, Instagram or Twitch. A fresh upload can show an
+  older event. Metadata screening does not fact-check breaking news.
+- **Hide this video** persists across scans. Restore items under Hidden videos.
+  Updates with a new policy version hide old results until they are refreshed.
+
+## Accurate dialogue clips and English subtitles
+
+The local AI reads every transcript section, compares scenes across a whole-video
+topic map and runs a final context check against dialogue around each proposed cut.
+It favors a clear opening, complete setup/payoff, concrete stakes and supported titles.
+The final pass can tighten boundaries or reject misleading fragments. Evidence quotes
+and numeric title claims are checked against the selected scene; repeated topics and
+overlapping cuts are rejected. AI quality still depends on the source and local model.
+
+Automatic dialogue clips must contain English speech. Confidently detected non-English
+speech blocks automatic editing. Dance and other visual footage can be selected manually
+under **Make clips → Already imported video → Choose a visual moment manually**.
+The editor analyzes dialogue; it cannot verify a goal, stunt, facial expression or
+engineering demonstration visually. Review the picture and context before publication.
+Manual visual cuts also attempt English transcription on just the chosen interval;
+captions are omitted with an explicit status if no confident English speech is detected.
+
+English subtitle burning is **on by default** for new automated batches. Transcription
+uses the `small` model and word timestamps by default; base/small/medium can be chosen in
+Editing options. Short timed cues improve readability. Every automatic dialogue draft
+also has a downloadable `.en.srt` file. The renderer trims and offsets timings to the
+actual clip. Subtitles preserve spoken English; they do not translate foreign audio.
+
+If FFmpeg lacks the subtitles/libass filter, a draft is created with a clearly labelled
+SRT file instead of burned text. For burned subtitles on a Mac, run once:
 
 ```bash
-git pull --ff-only
+brew install ffmpeg-full
+```
+
+Then restart the studio and generate new clips. The app automatically detects the
+Homebrew alternate executable at `/opt/homebrew/opt/ffmpeg-full/bin` or
+`/usr/local/opt/ffmpeg-full/bin`; no global relinking is needed. Existing exports are
+not silently modified. Review caption spelling, names and timing before publishing.
+
+**Make clips → Editing options → Save production defaults** saves clip count, subtitle
+preference, transcription quality and an optional applicable permission reference.
+Production preferences live in `data/studio-preferences.json`.
+
+## Published history
+
+New receipts save exact upload timestamps and YouTube publication timestamps when
+returned. **Published → Refresh publication dates from YouTube** backfills older receipts
+and refreshes recorded visibility without changing videos or retrying uploads.
+Until backfilled, legacy receipts are labelled with their original UTC date. The history
+contains uploads made through this app, not unrelated channel uploads. Uncertain attempts
+remain visibly separate from confirmed video links; check YouTube Studio before retrying.
+
+## Install or update on a Mac
+
+Prerequisites: Python 3.11+, Git, FFmpeg/ffprobe, and local Ollama/Qwen. No paid AI APIs or
+hosting are used. Your YouTube OAuth connection and expected channel must be configured.
+
+```bash
+git clone https://github.com/Mastermindulrich/viral-shorts-pipeline.git
+cd viral-shorts-pipeline
 bash Install-Mac.command
 ```
 
-Open **~/Applications/Viral Moment Clips.app** in Finder. The dashboard service runs
-through launchd, starts at login, and survives closing VS Code. Your Mac must be
-logged in and awake to process tasks. Ollama must be running with qwen2.5:7b installed.
-If startup fails, open `data/logs/activity.log` in Finder/TextEdit.
+For an existing installation, use **Activity & settings → Update app**. It fetches the
+configured upstream, accepts only a fast-forward update, preserves local JSON config,
+installs dependencies, runs checks and restarts the service. Failed installation/tests
+restore the previous code. Dependency changes are not fully rolled back. Local code edits
+stop the updater to protect your work. Videos, credentials, receipts and preferences stay
+in `data/`; they are not committed to Git.
 
-**Activity & settings → Update app** fetches the configured Git upstream, accepts only
-fast-forward updates, preserves local JSON configuration, installs dependencies,
-runs tests and restarts the installed service. Code rollback runs if installation
-or tests fail; installed Python dependency changes are not fully rolled back.
-Local code edits stop the updater so they cannot be overwritten. Videos, credentials,
-and upload receipts are never reset. Updating is blocked while a task is running.
-The older manual dashboard is retained as `dashboard_legacy.py`.
+The macOS launchd service starts at login and the Finder app opens the dashboard at
+`http://127.0.0.1:8501`. It does not require keeping VS Code or a terminal open. Logs are in
+`data/logs/activity.log`; **Activity & settings** provides filtered diagnostics to share.
+The previous manual interface remains available as `dashboard_legacy.py`.
 
-To stop/remove the login service on a Mac:
+## Development and operational limits
 
 ```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.viralmomentclips.dashboard.plist
-rm ~/Library/LaunchAgents/com.viralmomentclips.dashboard.plist
+python -m pip install -r requirements.txt -r requirements-preparation.txt
+python -m unittest discover -s tests -v
+python -m streamlit run dashboard.py
 ```
 
-Scouting is automated on demand, not scheduled unattended ingestion. Source permission
-records and final editorial review remain explicit. Visual-only moments still need
-manual selection in the legacy tools. No cloud services or paid APIs were added.
+Tests include real FFmpeg video rendering and approval checks. The real burned-caption
+test runs when the subtitles filter exists; its explicit skip does not skip core tests.
 
-## English audience and 60-second channel rules
+Sources and final editorial review remain under the owner's control. The pipeline records
+an external permission reference, not a licensing determination. Approval is bound to the
+exact exported bytes and job metadata. Uploads verify the expected channel and use durable
+reservations to prevent automatic duplicate attempts after ambiguous failures. The daily
+attempt limit uses UTC independently of the publishing-history display timezone.
 
-The channel now targets English-speaking viewers. Searches request English relevance;
-known non-English audio metadata excludes dialogue sources. Missing audio-language
-metadata is labelled **Language needs verification**, not assumed to be English.
-The AI editor selects English dialogue and writes English titles and explanations.
-Detected non-English source speech blocks automatic dialogue editing. Final review
-confirms English dialogue/metadata, or a visual clip understandable without dialogue.
-
-Official artist music releases are filtered using title, channel-name, category and
-metadata indicators, including official video/audio labels and VEVO/Topic releases.
-Reaction videos, movie trailers, interviews and dance remain eligible. These are
-heuristics, not verified artist-account badges; inspect ambiguous sources. Rejected
-ranking candidates and reasons appear under **Why some sources were excluded**.
-Saved ranked candidates are screened again when the page loads.
-
-Scouting retains broad topics and adds gaming/streamers, hot interviews, African urban
-dance (including amapiano, afrobeats and azonto), TikTok dance challenges, trailers and
-music reactions. TikTok challenges are discovered on **YouTube**, not through a direct
-TikTok connection. These topics are merged in code with existing local configuration,
-so the updater's configuration preservation does not prevent the new rules applying.
-Ranking still uses the same performance signals without a category bonus.
-
-Every clip must be **60 seconds or less**. The limit applies to manual jobs, AI scene
-boundaries, rendering, approval and upload, including the actual exported file's
-measured duration. Old longer drafts are blocked, not silently truncated or published.
-AI scenes aim for complete 15–60 second moments and use new versioned draft IDs.
-Already-published videos are unchanged.
-
-For dance and visual action: **Make clips → Import only**, then **Already imported
-video → Choose a visual moment manually**. Preview the source, enter a start and end
-within 60 seconds, and give it an English title. The preview joins the normal review
-queue. The dialogue editor does not automatically understand visual choreography.
-
-### Optional captions and update validation
-
-FFmpeg builds differ in their optional subtitle support. The app checks the actual
-installed executable for the `subtitles` filter; **Burn in captions** is disabled if
-that capability is missing. Caption requests also fail early with a clear message
-before downloading/transcribing a batch or changing an existing export. Normal
-rendering, approval and upload do not require subtitle support.
-
-Update validation always runs the core render/approval tests. A separate real
-caption-render test runs only when the filter is available; its explicit skip does
-not skip any core tests. Future test failures name the failing test in Activity,
-with full output in `data/logs/update-checks.log`. The updater still rolls back on
-core failures or on caption-render failures when support is advertised.
-
-### Stronger music exclusion and manual hiding
-
-Scouting now excludes standalone music releases from any channel, including videos
-in YouTube's Music category unless their titles clearly indicate an allowed reaction,
-interview, dance/choreography or trailer format. MV/M/V, visualizers, lyrics and
-music/audio-release labels are screened too. Genre words such as amapiano and a song
-title containing "dance" no longer exempt an ordinary music release. Metadata remains
-imperfect, so this filter can exclude ambiguous videos and occasionally miss releases.
-
-Old ranked results are withheld until they have been enriched and checked against
-the current policy. After updating, use **Find videos → Recheck saved results**, or
-run **Find and rank videos** for new discoveries. **Hide this video** saves a durable
-exclusion by video ID; it remains excluded from future discovery and ranking. Restore
-an individually hidden video under **Hidden videos** if needed. Hiding does not delete
-any imported file, existing clip, or YouTube upload.
+Discovery and preparation run on demand. There is no unattended scheduled ingestion,
+visual vision model, face tracking, revenue guarantee or automatic Shorts thumbnail upload.

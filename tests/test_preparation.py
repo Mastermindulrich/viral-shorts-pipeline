@@ -33,9 +33,12 @@ class PreparationTests(unittest.TestCase):
                             '-c:a','aac',str(source)],check=True)
             key=p.digest(source)[:16]
             p.write(p.DATA/'transcripts'/(key+'.json'),[dict(start=0,end=20,text='This is a complete sentence containing enough spoken words for a test of the automatic clip preparation pipeline.')])
-            jobs=prep.prepare(source,'test:generated',1)
+            with patch.object(p,'caption_capability',return_value=dict(supported=False)):
+                jobs=prep.prepare(source,'test:generated',1,captions=True)
             self.assertEqual(len(jobs),1)
             self.assertTrue((p.output(jobs[0])/'clip.mp4').exists())
+            self.assertTrue((p.output(jobs[0])/'captions.srt').exists())
+            self.assertNotIn('transcript',jobs[0])
             with self.assertRaisesRegex(ValueError,'Review draft'):
                 p.approve(jobs[0],'external:test')
 

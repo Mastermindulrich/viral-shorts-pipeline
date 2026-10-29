@@ -61,12 +61,18 @@ def execute(request):
         with p.lock():
             if action=='scout':
                 import scouting
-                stage('Searching across topics'); scouting.discover_broad()
+                stage('Searching recent events and selected topics'); result=scouting.discover_broad()
+                for warning in result.get('warnings',[]): print('Discovery warning: '+warning,flush=True)
                 stage('Ranking sources'); scouting.refresh()
             elif action=='rescreen':
                 import scouting
                 stage('Rechecking saved videos with current music and language filters')
                 scouting.refresh()
+            elif action=='sync_history':
+                import studio
+                stage('Reading exact publication dates from YouTube')
+                count=studio.sync_publication_dates()
+                print(f'Updated {count} publication timestamps.',flush=True)
             elif action=='import':
                 import preparation as prep
                 stage('Importing source for visual selection')
@@ -77,14 +83,26 @@ def execute(request):
                     stage('Downloading source'); source=prep.import_video(data['url'],data['clearance']); path=source['input']; url=source['source_url']
                 else: path=data['path']; url=data['source_url']
                 stage('Transcribing and selecting complete scenes — this can take several minutes')
-                prep.prepare(path,url,data.get('count',3),'base',data.get('captions',False),'semantic','qwen2.5:7b')
+                import studio
+                defaults=studio.preferences()
+                prep.prepare(path,url,data.get('count',defaults['count']),
+                             data.get('transcription_model',defaults['transcription_model']),data.get('captions',defaults['captions']),
+                             'semantic',defaults['editor_model'])
             elif action=='visual':
                 import uuid
+                import preparation as prep
+                import studio
                 stage('Rendering visual clip — maximum 60 seconds')
                 job=dict(id='visual-'+uuid.uuid4().hex[:12],input=data['path'],source_url=data['source_url'],
                          start=float(data['start']),end=float(data['end']),title=data['title'],description='',
                          layout='fit',made_for_kids=False,privacy='public',needs_editorial_review=True)
                 p.validate(job)
+                source_record=Path(job['input']).parent/'source.json'
+                if source_record.exists(): job['clearance_reference']=p.read(source_record).get('clearance_reference','')
+                defaults=studio.preferences()
+                if defaults['captions']:
+                    stage('Preparing English subtitles for the selected visual moment')
+                    prep.caption_visual(job,defaults['transcription_model'])
                 p.write(p.DATA/'jobs'/(job['id']+'.json'),job)
                 p.render(job)
             elif action=='publish':

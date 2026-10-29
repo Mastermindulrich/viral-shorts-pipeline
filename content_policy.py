@@ -1,9 +1,18 @@
 """Channel preferences. Metadata screening is a heuristic, not artist verification."""
 import re
 
-VERSION='english-60s-strict-music-v2'
+VERSION='fresh-events-en60-v3'
 MAX_CLIP_SECONDS=60
 TOPICS=[
+    {'name':'Champions League and football','query':'"Champions League" | Mbappe | Messi | Ronaldo reaction controversy goal fan footage'},
+    {'name':'Viral sports moments','query':'NBA | basketball | football | tennis incredible moment controversy athlete reaction'},
+    {'name':'Influencer life','query':'influencer creator drama surprise lifestyle viral moment'},
+    {'name':'Streamer moments','query':'Kai Cenat | IShowSpeed | streamer viral moment reaction'},
+    {'name':'Just happened','query':'breaking unexpected unbelievable caught on camera incident'},
+    {'name':'Sports controversies','query':'athlete football player apology controversy interview reaction'},
+    {'name':'Movie scenes and fan cuts','query':'movie scene unforgettable moment film clip'},
+    {'name':'Engineering hacks','query':'engineering hack invention clever mechanism demonstration'},
+    {'name':'Celebrity viral footage','query':'celebrity red carpet beach fashion paparazzi viral moment'},
     {'name':'Gaming and streamers','query':'gaming streamer funny intense viral moments'},
     {'name':'Hot interviews','query':'heated revealing celebrity interview viral'},
     {'name':'African urban dance','query':'African urban dance amapiano afrobeats azonto dance'},
@@ -20,6 +29,14 @@ def discovery_config(config):
     topics.extend(dict(x) for x in TOPICS if x['name'] not in names)
     result['topics']=topics
     return result
+
+
+def source_type(item):
+    """Estimate only; channel names are not verified ownership badges."""
+    channel=item.get('channelTitle',item.get('source',item.get('creator',''))).lower()
+    if re.search(r'\bofficial\b|\b(espn|uefa|fifa|nba|nfl|sky sports|bbc|cnn|netflix)\b|vevo| - topic$',channel):
+        return 'Likely official / publisher'
+    return 'Unverified / possibly independent'
 
 def screen(item):
     title=item.get('title','').lower()

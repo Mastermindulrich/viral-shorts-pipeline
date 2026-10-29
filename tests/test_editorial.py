@@ -27,10 +27,13 @@ class EditorialTests(unittest.TestCase):
             with self.subTest(changes=changes),self.assertRaises(ValueError):
                 e.validate_scene(dict(self.scene,**changes),self.segments)
     def test_semantic_pipeline_uses_topic_map_and_title(self):
-        with patch.object(e,'ask',side_effect=[{'summary':'Revenue versus cash','scenes':[self.scene]}, {'ranked_ids':[0]}]) as ask:
+        with patch.object(e,'ask',side_effect=[{'summary':'Revenue versus cash','scenes':[self.scene]}, {'ranked_ids':[0]},
+                {'scenes':[dict(self.scene,candidate_id=0)]}]) as ask:
             result=e.select_scenes(self.segments,3)
             self.assertEqual(result['scenes'][0]['title'],self.scene['title'])
-            self.assertIn('Revenue versus cash',ask.call_args.args[0])
+            self.assertIn('Revenue versus cash',ask.call_args_list[1].args[0])
+            self.assertIn('Revenue is different',ask.call_args.args[0].replace('revenue is different','Revenue is different'))
+            self.assertTrue(result['scenes'][0]['context_audited'])
     def test_no_silent_fallback(self):
         with patch.object(e,'ask',return_value={'summary':'Nothing complete','scenes':[]}):
             with self.assertRaisesRegex(ValueError,'No valid complete scenes'): e.select_scenes(self.segments)
@@ -68,8 +71,8 @@ class BroadDiscoveryTests(unittest.TestCase):
         service=MagicMock()
         service.videos.return_value.list.return_value.execute.return_value={'items':[]}
         service.search.return_value.list.return_value.execute.return_value={'items':[
-            {'id':{'videoId':'abcdefghijk'},'snippet':{'title':'Example','publishedAt':'2026-10-23T00:00:00Z','channelTitle':'Example creator'}}]}
-        with tempfile.TemporaryDirectory() as td, patch.object(p,'ROOT',Path(td)), patch.object(p,'DATA',Path(td)/'data'), patch.object(p,'credentials',return_value=None), patch.dict('sys.modules',{'googleapiclient':types.ModuleType('googleapiclient'),'googleapiclient.discovery':types.SimpleNamespace(build=lambda *a,**k:service)}):
+            {'id':{'videoId':'abcdefghijk'},'snippet':{'title':'Example','publishedAt':dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00','Z'),'channelTitle':'Example creator'}}]}
+        with tempfile.TemporaryDirectory() as td, patch.object(p,'ROOT',Path(td)), patch.object(p,'DATA',Path(td)/'data'), patch.object(s,'preferences',return_value=dict(s.DEFAULTS,categories=[])), patch.object(p,'credentials',return_value=None), patch.dict('sys.modules',{'googleapiclient':types.ModuleType('googleapiclient'),'googleapiclient.discovery':types.SimpleNamespace(build=lambda *a,**k:service)}):
             p.write(Path(td)/'config'/'discovery.json',dict(searches_per_scan=2,regions=['US'],topics=[dict(name=str(i),query='query'+str(i)) for i in range(4)]))
             first=s.discover_broad()
             second=s.discover_broad()

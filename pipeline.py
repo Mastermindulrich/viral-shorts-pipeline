@@ -13,6 +13,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import textwrap
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -32,7 +33,15 @@ def write(path, value):
     temp.replace(path)
 
 def run(args, **kwargs):
+    if args[0] in ('ffmpeg','ffprobe'): args=[media_tool(args[0]),*args[1:]]
     return subprocess.run(args, check=True, **kwargs)
+
+def media_tool(name):
+    # Homebrew's caption-capable alternate build is keg-only; no global relinking needed.
+    for prefix in ('/opt/homebrew/opt/ffmpeg-full/bin','/usr/local/opt/ffmpeg-full/bin'):
+        path=Path(prefix)/name
+        if path.is_file(): return str(path)
+    return name
 
 def digest(path):
     h = hashlib.sha256()
@@ -42,12 +51,12 @@ def digest(path):
     return h.hexdigest()
 
 def probe(path):
-    return json.loads(subprocess.check_output(['ffprobe', '-v', 'error', '-show_format', '-show_streams', '-of', 'json', str(path)]))
+    return json.loads(subprocess.check_output([media_tool('ffprobe'), '-v', 'error', '-show_format', '-show_streams', '-of', 'json', str(path)]))
 
 def caption_capability():
     """Inspect the installed executable; captions are an optional libass feature."""
     try:
-        result=subprocess.run(['ffmpeg','-hide_banner','-filters'],capture_output=True,text=True,timeout=10)
+        result=subprocess.run([media_tool('ffmpeg'),'-hide_banner','-filters'],capture_output=True,text=True,timeout=10)
     except (OSError,subprocess.TimeoutExpired):
         return {'supported':False,'reason':'Cannot inspect FFmpeg. Check the local FFmpeg installation.'}
     if result.returncode:
@@ -56,7 +65,7 @@ def caption_capability():
                   for line in result.stdout.splitlines())
     return {'supported':supported,'reason':
             'Burned-in captions available.' if supported else
-            'Burned-in captions are unavailable in this FFmpeg build (subtitles/libass missing). Generate clips with captions off.'}
+            'Burned-in captions unavailable: subtitles/libass missing. English SRT files still work. On Mac, install ffmpeg-full, then restart the app.'}
 
 
 def require_captions():
@@ -100,11 +109,27 @@ def stamp(seconds):
 def subtitles(segments, start, end):
     lines = []
     for s in segments:
-        a, b = max(start, float(s['start'])), min(end, float(s['end']))
-        if b > a and s['text'].strip():
+        words=s.get('words') or []
+        cues=[]
+        if words:
+            group=[]
+            for word in words:
+                if group and (len(group)>=7 or float(word['end'])-float(group[0]['start'])>3.5):
+                    cues.append(dict(start=group[0]['start'],end=group[-1]['end'],text=''.join(x['word'] for x in group)))
+                    group=[]
+                group.append(word)
+            if group: cues.append(dict(start=group[0]['start'],end=group[-1]['end'],text=''.join(x['word'] for x in group)))
+        else:
+            # Legacy transcripts have segment timing only; label that limitation in the UI.
+            cues=[s]
+        for cue in cues:
+            a, b = max(start, float(cue['start'])), min(end, float(cue['end']))
+            if b<=a or not cue['text'].strip(): continue
             # Strip markup/control characters from model or supplied transcript.
-            text = re.sub(r'<[^>]*>|\{[^}]*\}', '', s['text']).replace('\r', ' ').replace('\n', ' ')
-            lines.append(f'{len(lines)+1}\n{stamp(a-start)} --> {stamp(b-start)}\n{text.strip()}\n')
+            text = re.sub(r'<[^>]*>|\{[^}]*\}', '', cue['text'])
+            text=' '.join(''.join(c if c.isprintable() else ' ' for c in text).split())
+            text='\n'.join(textwrap.wrap(text,width=34,break_long_words=False))
+            lines.append(f'{len(lines)+1}\n{stamp(a-start)} --> {stamp(b-start)}\n{text}\n')
     return '\n'.join(lines)
 
 def render(job):
@@ -125,12 +150,14 @@ def render(job):
         vf = 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1'
     else:
         vf = 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,setsar=1'
-    if job.get('transcript'):
-        srt = subtitles(read(job['transcript']), job['start'], job['end'])
+    caption_source=job.get('transcript') or job.get('caption_source')
+    if caption_source:
+        srt = subtitles(read(caption_source), job['start'], job['end'])
         if not srt:
             raise ValueError('No transcript text overlaps this clip')
         (dest / 'captions.srt').write_text(srt)
-        vf += ",subtitles=filename=captions.srt:force_style='FontSize=18,Outline=2,MarginV=100'"
+        if job.get('transcript'):
+            vf += ",subtitles=filename=captions.srt:force_style='FontName=Arial,FontSize=18,Bold=1,Outline=2,MarginV=55'"
     tmp = dest / 'clip.partial.mp4'
     run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(job['start']), '-i', str(src),
          '-t', str(job['end']-job['start']), '-map', '0:v:0', '-map', '0:a:0', '-vf', vf,
@@ -268,13 +295,15 @@ def upload(job):
         status['publishAt'] = job['publish_at']
     body = {'snippet': {'title': job['title'], 'description': job.get('description','') + '\n\nSource: ' + job['source_url'],
                         'categoryId': '24', 'defaultLanguage': 'en'}, 'status': status}
-    write(receipt, {'state': 'uploading', 'day': today, 'job_sha': fingerprint(job)})
+    write(receipt, {'state': 'uploading', 'day': today, 'attempted_at':dt.datetime.now(dt.timezone.utc).isoformat(), 'job_sha': fingerprint(job)})
     request = service.videos().insert(part='snippet,status', body=body,
         media_body=MediaFileUpload(str(dest/'clip.mp4'), mimetype='video/mp4', resumable=True, chunksize=8*1024*1024))
     response = None
     while response is None:
         _, response = request.next_chunk()
-    write(receipt, {'state': 'uploaded', 'day': today, 'video_id': response['id'], 'job_sha': fingerprint(job)})
+    write(receipt, {'state': 'uploaded', 'day': today, 'uploaded_at':dt.datetime.now(dt.timezone.utc).isoformat(),
+                    'published_at':response.get('snippet',{}).get('publishedAt'),
+                    'video_id': response['id'], 'privacy':status['privacyStatus'], 'job_sha': fingerprint(job)})
     print('https://www.youtube.com/watch?v=' + response['id'])
 
 def api_recent_uploads(channel_id, service=None):

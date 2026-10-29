@@ -94,18 +94,21 @@ def windows(segments, limit=3):
 
 
 def prepare(source, source_url, count=3, model='base', captions=False, editor='basic', editor_model='qwen2.5:7b'):
-    if captions: p.require_captions()
     source=Path(source).resolve()
     receipt=source.parent/'source.json'
+    record={}
     if receipt.exists():
-        decision=policy.screen(p.read(receipt))
+        record=p.read(receipt)
+        decision=policy.screen(record)
         if not decision['eligible']: raise ValueError(decision['reason'])
     key=p.digest(source)[:16]
-    transcript=p.DATA/'transcripts'/(key+'.json')
+    transcript=p.DATA/'transcripts'/(key+('-words-'+model+'-v3' if editor=='semantic' else '')+'.json')
     if not transcript.exists():
         from faster_whisper import WhisperModel
-        segments,language_info=WhisperModel(model,device='cpu',compute_type='int8').transcribe(str(source),vad_filter=True)
-        p.write(transcript,[dict(start=s.start,end=s.end,text=s.text.strip()) for s in segments])
+        segments,language_info=WhisperModel(model,device='cpu',compute_type='int8').transcribe(
+            str(source),vad_filter=True,word_timestamps=True,beam_size=5)
+        p.write(transcript,[dict(start=s.start,end=s.end,text=s.text.strip(),
+            words=[dict(start=w.start,end=w.end,word=w.word) for w in (s.words or [])]) for s in segments])
         p.write(transcript.with_suffix('.language.json'),dict(language=language_info.language,
                 probability=language_info.language_probability))
     language_path=transcript.with_suffix('.language.json')
@@ -128,7 +131,9 @@ def prepare(source, source_url, count=3, model='base', captions=False, editor='b
         raise ValueError('Not enough continuous speech for suggestions. Use the manual clip form for silent/action videos.')
     jobs=[]
     for item in candidates:
-        ident=('story-en60-v2-' if editor=='semantic' else 'draft-en60-')+key+'-'+str(round(item['start']*1000))
+        burned=bool(captions and p.caption_capability()['supported'])
+        ident=(('story-v3-'+('sub-' if burned else 'srt-')) if editor=='semantic' else 'draft-en60-')+key+'-'+str(round(item['start']*1000))
+        if editor=='semantic': ident+='-'+str(round(item['end']*1000))+'-'+model
         dest=p.DATA/'jobs'/(ident+'.json')
         if dest.exists():
             old=p.read(dest)
@@ -139,9 +144,13 @@ def prepare(source, source_url, count=3, model='base', captions=False, editor='b
         job=dict(id=ident,input=str(source),source_url=source_url,start=item['start'],end=item['end'],
                  title=title,description='',layout='fit',made_for_kids=False,privacy='public',
                  needs_editorial_review=True,transcript_excerpt=item['text'])
+        job['clearance_reference']=record.get('clearance_reference','')
+        job['caption_source']=str(transcript)
+        job['caption_status']='English subtitles burned in' if burned else 'English SRT available; subtitles not burned in'
+        job['caption_timing']='word timestamps' if any(x.get('words') for x in p.read(transcript)) else 'segment timestamps'
         if editor=='semantic':
             job['editorial']={k:v for k,v in item.items() if k not in ('start','end','text','title')}
-        if captions: job['transcript']=str(transcript)
+        if burned: job['transcript']=str(transcript)
         p.validate(job)
         p.write(dest,job)
         p.render(job)
@@ -177,3 +186,33 @@ def source_catalog():
             sources.append(dict(path=path,number=None,label='Local file — '+path.name,
                                 title=path.name,creator='',url='Local file: '+path.name))
     return sources
+
+
+def caption_visual(job, model='small', burn=True):
+    """Try English captions on just the chosen visual cut; keep source audio unchanged."""
+    audio=p.DATA/'transcripts'/(job['id']+'-audio.wav')
+    transcript=audio.with_suffix('.json')
+    audio.parent.mkdir(parents=True,exist_ok=True)
+    try:
+        p.run(['ffmpeg','-hide_banner','-loglevel','error','-y','-ss',str(job['start']),
+               '-i',str(p.material(job)),'-t',str(job['end']-job['start']),
+               '-vn','-ac','1','-ar','16000',str(audio)])
+        from faster_whisper import WhisperModel
+        segments,info=WhisperModel(model,device='cpu',compute_type='int8').transcribe(
+            str(audio),vad_filter=True,word_timestamps=True,beam_size=5)
+        segments=list(segments)
+        if info.language!='en' or info.language_probability<.8 or not segments:
+            job['caption_status']='No confident English speech detected; subtitles omitted'
+            return job
+        offset=float(job['start'])
+        p.write(transcript,[dict(start=offset+s.start,end=offset+s.end,text=s.text.strip(),
+            words=[dict(start=offset+w.start,end=offset+w.end,word=w.word) for w in (s.words or [])]) for s in segments])
+        job.update(caption_source=str(transcript),caption_timing='word timestamps')
+        if burn and p.caption_capability()['supported']:
+            job.update(transcript=str(transcript),caption_status='English subtitles burned in')
+        else: job['caption_status']='English SRT available; subtitles not burned in'
+    except Exception as exc:
+        print('Visual subtitle preparation failed: '+str(exc),flush=True)
+        job['caption_status']='English subtitles unavailable: '+str(exc)[:200]
+    finally: audio.unlink(missing_ok=True)
+    return job

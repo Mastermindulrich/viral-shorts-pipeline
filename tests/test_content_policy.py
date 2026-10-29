@@ -46,8 +46,10 @@ class ContentPolicyTests(unittest.TestCase):
     def test_old_cache_hidden_until_metadata_checked_and_hidden_ids_persist(self):
         with tempfile.TemporaryDirectory() as td,patch.object(p,'DATA',Path(td)):
             old=dict(id='old',title='Unknown cached video')
-            current=dict(id='current',title='Interview',policy_version=policy.VERSION)
-            self.assertEqual(scouting.visible_ranked([old,current]),[dict(current,policy=policy.screen(current))])
+            current=dict(id='current',title='Interview',policy_version=policy.VERSION,
+                         published=dt.datetime.now(dt.timezone.utc).isoformat(),views=20000,
+                         average_views_per_hour=1000,duration_seconds=600)
+            self.assertEqual([x['id'] for x in scouting.visible_ranked([old,current])],['current'])
             scouting.hide_video(current)
             self.assertEqual(scouting.visible_ranked([current]),[])
             self.assertIn('current',p.read(p.DATA/'scouting-hidden.json'))
