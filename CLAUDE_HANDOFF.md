@@ -1,10 +1,20 @@
-# Viral Moment Clips — Complete Handoff for Claude
+# Viral Moment Clips — Shared Handoff (Claude and Codex/ChatGPT)
 
 Updated: 2026-10-29 (America/Toronto)
 Canonical repository: `https://github.com/Mastermindulrich/viral-shorts-pipeline`
 Canonical GitHub branch: `main`
-Latest published remote commit: `ea8ae8dbbe14869dad49d75b9b1c904803416aa8`
-Latest local snapshot commit: `9954d5a` (the remote tree is the authoritative project state)
+Last recorded state: see the newest entry in `PROJECT_COLLABORATION_LOG.md`.
+
+## 0. Start here — rules for every AI assistant
+
+The owner (Ulrich) switches between Claude and Codex/ChatGPT on this repository. Two files are the shared memory: this handoff (current state and rules) and `PROJECT_COLLABORATION_LOG.md` (dated chronology: what changed, why, tests). `AGENTS.md` and `CLAUDE.md` point both tools here. Each assistant, in every session:
+
+1. Read this file, then `PROJECT_COLLABORATION_LOG.md`, then `git log -5`.
+2. Run `python -m unittest discover -s tests -v` before editing and record the result.
+3. **Never remove or rewrite another assistant's features while editing nearby code.** Start from the latest `main` (pull first) and edit in place; do not paste in an older copy of a file. A failing test written by the other assistant describes required behavior: fix the code, not the test, unless the owner changed that rule.
+4. Keep every rule in section 2 and the workflow in section 3.
+5. In the same commit or PR as any change: append a dated entry to `PROJECT_COLLABORATION_LOG.md` (assistant, commit/PR, what changed, decisions and why, tests run and results) and update any section here whose facts changed.
+6. Commit only when the complete suite passes. Never commit secrets, OAuth tokens or `data/`.
 
 ## 1. Product goal
 
@@ -42,6 +52,7 @@ The user wants minimal input, but final review and the user's external permissio
 - Videos are uploaded with `privacyStatus=public` immediately after approval. YouTube processing can still delay playback.
 - The app verifies the expected YouTube channel before upload. Expected channel name is Viral Moment Clips; expected ID is `UC66Gf5TgUNxGHM7DbPUqrSw`.
 - Upload attempts reserve a receipt before network upload to avoid automatic duplicate retries after ambiguous failures.
+- Cross-job duplicate guard: upload is refused when any earlier receipt (uploaded or uncertain) has the same `source_url` and overlaps at least 50% of the shorter clip, or its approved video bytes are identical (`pipeline.upload_conflicts`). New receipts also store `source_url`, `start` and `end`. Review & publish shows these as warnings, and a multi-clip publish continues past a blocked clip, then reports "N of M clips not published".
 - Daily upload attempt limit is stored in `config/settings.json` and currently defaults to 20 UTC-day attempts.
 
 ## 3. Current user workflow
@@ -168,7 +179,7 @@ Default timezone is `America/Toronto`; it can be changed in Activity & settings.
 - `config/settings.json` — channel guard and daily upload limit
 - `requirements.txt` — dashboard/upload dependencies
 - `requirements-preparation.txt` — yt-dlp and faster-whisper
-- `tests/` — unit, integration and Streamlit-related fixtures
+- `tests/` — unit, integration and Streamlit AppTest coverage (`tests/test_dashboard.py`)
 - `Install-Mac.command` — one-time Mac installation
 - `Launch.command` — launcher helper
 - `README.md` — user-facing operating guide
@@ -239,7 +250,15 @@ python -m unittest discover -s tests -v
 
 Do not remove the Ollama connection from Claude merely to operate the Shorts app. The Shorts app talks directly to Ollama through its local HTTP endpoint. Claude's own GitHub connector and Ollama's model connection are separate.
 
+## 7a. Local setup check
+
+`.venv/bin/python app_runtime.py doctor` (and **Activity & settings → Mac setup check**) reports Python 3.11+, `.venv`, packages, FFmpeg/ffprobe, libass subtitles (optional), Ollama reachability, `qwen2.5:7b` presence (a `:latest` tag also counts) and whether `data/secrets/token.json` exists, with exact fix commands. It never reads or prints credential contents. The `prepare` task calls `editorial.require_model` before downloading or transcribing. `Install-Mac.command` creates `.venv` when missing and runs the doctor without failing installation.
+
 ## 8. Validation status
+
+Current (2026-10-29, after the restore described in the log): 70 tests pass with dependencies installed; 2 are skipped on bare Python without Streamlit/libass. CI installs `requirements.txt` so the Streamlit AppTest runs there.
+
+Original handoff status:
 
 At handoff preparation:
 
@@ -268,17 +287,19 @@ GitHub Actions run that passed: `40889961521`.
 
 Good future work should preserve the current constraints and tests. If adding a vision model, keep it optional and local; do not silently send user media to a cloud service. If changing upload behavior, preserve public-immediately behavior and durable duplicate protection.
 
-## 10. Exact instruction to give Claude
+## 10. Instruction to give either assistant
 
-Read PROJECT_COLLABORATION_LOG.md after this file. It is the chronological continuity
-record between Codex and Claude. Its latest entry documents the scene-selection failure
-and the boundary-expansion fix that must be tested next.
+Paste this into Claude or Codex/ChatGPT after it has access to the repository:
 
-Paste this into Claude Code after it has access to the repository:
+> Read `CLAUDE_HANDOFF.md` (especially sections 0 and 2) and `PROJECT_COLLABORATION_LOG.md` completely before changing anything. You are continuing the existing Viral Moment Clips project, not starting a new app. Pull the latest `main` and edit files in place; never replace a file with an older copy, and never remove another assistant's features or tests. Run the full test suite before and after changes; commit only when every test passes. Preserve user data, OAuth credentials, `data/`, public-immediately publishing, duplicate-upload protection, music exclusions, English-only rules, English subtitles and the 15–180 second coherent-cut rule. Keep the workflow: recent discovery → 10 strong choices → accurate complete scene selection → English subtitles → one review/approval → public upload. Never request secrets in chat. If local execution is needed, ask the owner to run `.venv/bin/python app_runtime.py doctor` and share its output. Append a dated entry to `PROJECT_COLLABORATION_LOG.md` with what you changed, why, and the test results.
 
-> Read `CLAUDE_HANDOFF.md` completely before changing anything. You are taking over the existing Viral Moment Clips project, not starting a new app. Treat GitHub `main` and this handoff as the authoritative current state. First inspect the repository, current branch, tests and recent commit `ea8ae8dbbe14869dad49d75b9b1c904803416aa8`. Do not reset, rewrite or remove existing user data, OAuth credentials, `data/` files, public-upload behavior, music exclusion, English-only policy or the 15–180 second coherent-cut rule. Run the test suite before making changes, then make a concrete implementation plan based on the current code. Keep the dashboard workflow streamlined: recent discovery → 10 strong choices → accurate complete scene selection → English subtitles → one review/approval → public upload. Preserve the user’s desired categories and saved filtering/date-history behavior. Do not expose or request secrets in chat. If local execution is needed, check for `.venv`, FFmpeg, Ollama and `qwen2.5:7b`; explain any missing dependency clearly. Before proposing a change, run relevant tests and show the result. Before opening a PR or pushing, provide a reviewable summary and validation results. Do not create a replacement architecture without first understanding the existing modules and data contracts.
+## 11. Open items and next steps
 
-Claude should then be asked to begin with:
+Owner actions on the Mac (not verifiable from the cloud):
+- Click **Activity & settings → Update app** after the latest fix is on `main`, then run `cd ~/viral-shorts-pipeline && .venv/bin/python app_runtime.py doctor` and fix anything marked MISSING (typically `ollama pull qwen2.5:7b`, opening the Ollama app, or `brew install ffmpeg-full`).
+- Retry the source that failed scene selection and record the outcome in the log (Codex's boundary-expansion fix).
 
-> Inspect the repository and confirm your understanding of the current implementation, current limitations and the next three highest-value improvements. Do not edit yet. Report any mismatch between `CLAUDE_HANDOFF.md`, the code and the latest GitHub commit.
-
+Suggested next development steps:
+1. Run a real end-to-end batch with the 180-second rule and record clip-quality issues in the log.
+2. Optional local-timezone view of the daily upload cap (currently UTC; see section 9).
+3. Optional local vision check for visual clips (must stay local and optional).
