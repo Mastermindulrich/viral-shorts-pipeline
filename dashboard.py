@@ -51,8 +51,17 @@ def activity():
         elif status=='interrupted': st.warning(current.get('error'))
         else: st.success(message+'. Refresh the workspace below to see new clips.')
 activity()
-if st.button('Refresh workspace'): st.rerun()
-find,make,review,published,tools=st.tabs(['1 · Find videos','2 · Make clips','3 · Review & publish','Published','Activity & settings'])
+awaiting=len([1 for x in (p.DATA/'exports').glob('*/job.json') if not (x.parent/'upload.json').exists()])
+hero,stat=st.columns([3,1])
+with hero:
+    if st.button('✨ Make clips automatically',type='primary',disabled=busy,use_container_width=True,
+                 help='Finds the best new video from your saved filters, cuts the clips and puts them in Review & publish. You only approve the final posting.'):
+        launch('auto')
+    st.caption('One click: find a video → pick the best moments → add English subtitles → ready for your approval.')
+with stat:
+    st.metric('Awaiting your approval',awaiting)
+    if st.button('Refresh',use_container_width=True): st.rerun()
+find,make,review,published,tools=st.tabs(['Find videos','Make clips from a link','Review & publish','Published','Settings'])
 with find:
     st.subheader('10 recent videos with traction')
     st.caption('Fresh sports moments, controversies, streamers, influencer life, unexpected events, movie cuts, engineering and celebrity footage. Your existing dance, interview and reaction categories remain available. Standalone music releases stay excluded.')
@@ -74,10 +83,7 @@ with find:
             if st.form_submit_button('Save discovery filters',disabled=busy):
                 scouting.save_preferences(dict(categories=categories,days=days,min_views=min_views,min_views_per_hour=min_vph,source_preference=preference,event_queries=events,include_keywords=include,exclude_keywords=exclude,blocked_channels=blocked)); st.rerun()
     st.caption(f"Last {prefs['days']} days · {prefs['min_views']:,}+ views · {prefs['min_views_per_hour']:,}+ views/hour · {prefs['source_preference']}")
-    a1,a2=st.columns(2)
-    if a1.button('Find and rank videos',type='primary',disabled=busy): launch('scout')
-    if a2.button('Auto-run: find the best video and make clips',disabled=busy,help='Scouts, picks the top new video from your saved filters, and prepares clips for review. Needs a saved default permission record.'):
-        launch('auto')
+    if st.button('Find and rank videos',disabled=busy): launch('scout')
     if (p.DATA/'discovery-rotation.json').exists():
         scan=p.read(p.DATA/'discovery-rotation.json')
         st.caption('Last searched: '+', '.join(scan.get('last_topics',[]))+'. Next scans rotate through your selected topics.')
@@ -101,11 +107,9 @@ with find:
                 st.caption(f"{item.get('views',0):,} views · {signal:,.0f} views/hour · {item.get('signal_label','Average')} · Uploaded {item.get('published','')}")
                 st.caption(item['source_type']+' · '+', '.join(item['categories']))
                 if st.button('Use this video',key='use-'+item['id']):
-                    st.session_state['source_link']=item['url']; st.success('Selected. Open 2 · Make clips.')
-                if st.button('Generate clips from this video',key='generate-'+item['id'],disabled=busy):
-                    if not defaults['clearance'].strip():
-                        st.session_state['source_link']=item['url']; st.info('Selected. Open Make clips, enter the permission record and click Generate clips. You can save a default permission record there if it applies to future sources.')
-                    else: launch('prepare',dict(url=item['url'],clearance=defaults['clearance']))
+                    st.session_state['source_link']=item['url']; st.success('Selected. Open Make clips from a link.')
+                if st.button('Generate clips from this video',key='generate-'+item['id'],type='primary',disabled=busy):
+                    launch('prepare',dict(url=item['url']))
                 if st.button('Hide this video',key='hide-'+item['id'],disabled=busy):
                     scouting.hide_video(item); st.rerun()
     else: st.info('Run your first scan, or go directly to Make clips with a video link.')
@@ -120,16 +124,16 @@ with find:
         with st.expander('Why some sources were excluded'):
             st.dataframe(p.read(p.DATA/'scouting-exclusions.json'))
 with make:
-    st.subheader('Generate a ready-to-review batch')
+    st.subheader('Make clips from a link or an imported video')
     mode=st.radio('Start from',['YouTube link','Already imported video'],horizontal=True)
-    source=None
+    source=None; url=''
     if mode=='YouTube link':
         url=st.text_input('Video link',key='source_link')
-        clearance=st.text_input('Permission record',value=defaults['clearance'],help='For example: your own footage, licence number, or creator permission email.')
-        if st.button('Import only — choose a visual moment afterward',disabled=busy):
-            if not url or not clearance.strip(): st.error('Enter the link and permission record.')
-            else: launch('import',dict(url=url,clearance=clearance))
-        st.caption('For dance or other visual action: import only, then select Already imported video and choose a visual moment manually.')
+        if st.button('Make clips',type='primary',disabled=busy or not url):
+            launch('prepare',dict(url=url))
+        if st.button('Import only — choose a visual moment manually',disabled=busy or not url):
+            launch('import',dict(url=url))
+        st.caption('The number of clips is chosen automatically from the video length and quality. For dance or other visual action, import only, then choose Already imported video.')
     else:
         try: catalog=prep.source_catalog() if not busy else []
         except Exception as exc: st.error(str(exc)); catalog=[]
@@ -137,10 +141,12 @@ with make:
             source=st.selectbox('Numbered source videos',catalog,format_func=lambda x:x['label'])
             st.link_button('Watch original',source['url']) if source['url'].startswith('https://') else None
             if st.checkbox('Preview full source'): st.video(str(source['path']))
+            if st.button('Make clips',type='primary',disabled=busy):
+                launch('prepare',dict(path=str(source['path']),source_url=source['url']))
         else: st.info('No sources available, or a task is using the library. Refresh after it finishes.')
     if source:
         with st.expander('Choose a visual moment manually — dance, gaming action or trailers'):
-            st.caption('The AI editor selects dialogue. For a visual moment, preview the source and choose the start and end yourself. Keep it understandable to an English-speaking audience.')
+            st.caption('For a visual moment, preview the source and choose the start and end yourself. Keep it understandable to an English-speaking audience.')
             a,b=st.columns(2)
             manual_start=a.number_input('Visual clip start (seconds)',min_value=0.,value=0.)
             manual_end=b.number_input('Visual clip end (seconds)',min_value=1.,value=30.)
@@ -150,26 +156,18 @@ with make:
                     st.error('Enter an English title and choose a clip between 1 and 180 seconds.')
                 else: launch('visual',dict(path=str(source['path']),source_url=source['url'],
                                          start=manual_start,end=manual_end,title=manual_title))
-    count=st.slider('Clips to suggest',1,5,int(defaults['count']))
     with st.expander('Editing options'):
         capability=p.caption_capability()
         captions=st.checkbox('Add English subtitles automatically',value=bool(defaults['captions']))
         if not capability['supported']: st.caption(capability['reason'])
-        quality=st.selectbox('Transcription quality',['base','small','medium'],index=['base','small','medium'].index(defaults['transcription_model']),format_func=lambda x:{'base':'Fast · base','small':'Balanced · small (recommended)','medium':'Detailed · medium (slower)'}[x])
-        default_ref=st.text_input('Default permission record (optional)',value=defaults['clearance'],help='Only save a reference that applies to the sources you intend to use. Otherwise enter it for each source.')
-        if st.button('Save production defaults',disabled=busy):
-            studio.save_preferences(dict(count=count,captions=captions,transcription_model=quality,clearance=default_ref.strip())); st.rerun()
-        st.caption('The editor reads the transcript, compares moments across the full video, then checks each final cut against surrounding dialogue. English captions use word timing when available. Visual action still needs your review.')
+        quality=st.selectbox('Transcription quality',['base','small','medium'],index=['base','small','medium'].index(defaults['transcription_model']),format_func=lambda x:{'base':'Fastest · base','small':'Balanced · small (recommended)','medium':'Most accurate, slowest · medium'}[x])
+        if st.button('Save editing options',disabled=busy):
+            studio.save_preferences(dict(captions=captions,transcription_model=quality)); st.rerun()
     editor_check=[x for x in setup_checks() if x['name'] in ('Ollama running','Local AI editor model') and not x['ok']]
     if editor_check:
-        st.warning('The local AI editor is not ready, so Generate clips will stop before downloading. '+
+        st.warning('The local AI editor is not ready, so clip making will stop before downloading. '+
                    ' · '.join(x['detail']+' — run: '+x['fix'] for x in editor_check)+'. Manual visual clips still work.')
-    if st.button('Generate clips',type='primary',disabled=busy):
-        if mode=='YouTube link':
-            if not url or not clearance.strip(): st.error('Enter the link and permission record.')
-            else: launch('prepare',dict(url=url,clearance=clearance,count=count,captions=captions,transcription_model=quality))
-        elif source: launch('prepare',dict(path=str(source['path']),source_url=source['url'],count=count,captions=captions,transcription_model=quality))
-    st.caption('Downloading, transcription, scene selection, titles and rendering happen in one background task. No upload happens here.')
+    st.caption('Download, transcription, scene selection, titles and rendering run in one background task. Nothing is uploaded until you approve it in Review & publish.')
 
 jobs=[]
 for path in sorted((p.DATA/'exports').glob('*/job.json'),key=lambda x:x.stat().st_mtime):
@@ -177,58 +175,60 @@ for path in sorted((p.DATA/'exports').glob('*/job.json'),key=lambda x:x.stat().s
     except Exception: pass
 with review:
     pending=[(path,job) for path,job in jobs if not (path.parent/'upload.json').exists()]
-    st.subheader(f'{len(pending)} clips awaiting review')
-    st.caption('Watch each clip, edit its title, select the audience, then publish. Publishing sends it to YouTube as public immediately; playback still depends on YouTube processing.')
-    ready=[]
+    st.subheader(f'{len(pending)} clips awaiting your approval')
+    st.caption('Watch, adjust the title if you like, then press Publish — that press is your approval, and the clip goes public on YouTube immediately. Delete anything you do not want.')
+    publishable=[]
     for number,(path,job) in enumerate(pending,1):
-        with st.expander(f"Clip {number:03d} · {job['title']}"):
+        with st.container(border=True):
+            st.markdown(f"**Clip {number} · {job['title']}**")
             if not (path.parent/'clip.mp4').is_file():
-                st.warning('The rendered video file is missing. Generate this clip again before publishing.')
+                st.warning('The rendered video file is missing. Delete this clip and make it again.')
+                if st.button('Delete this clip',key='del-'+job['id'],disabled=busy): p.discard_clip(job['id']); st.rerun()
                 continue
-            st.video(str(path.parent/'clip.mp4'))
-            st.caption(f"Source: {job['source_url']} · {job['start']:.1f}–{job['end']:.1f}s")
-            if job.get('caption_status'): st.caption(job['caption_status']+' · '+job.get('caption_timing',''))
-            if (path.parent/'captions.srt').exists():
-                st.download_button('Download English subtitles',data=(path.parent/'captions.srt').read_bytes(),file_name=job['id']+'.en.srt',key='srt-'+job['id'])
-            if float(job['end'])-float(job['start'])>180:
-                st.warning('This draft is longer than 180 seconds and cannot be published. Choose a shorter coherent cut.')
-                continue
-            conflicts=p.upload_conflicts(job,check_video=False)
-            if conflicts:
-                st.warning('Already published from this moment: '+p.describe_conflicts(conflicts)+'. Publishing is blocked to avoid a duplicate upload.')
-                continue
-            edit=job.get('editorial',{})
-            if edit:
-                st.write(edit.get('topic','')); st.write('Why this moment: '+edit.get('why_this_cut',''))
-                st.write('Other titles:',edit.get('alternative_titles',[]))
-                with st.expander('Transcript evidence'): st.write(edit.get('evidence_quote','')); st.write(job.get('transcript_excerpt',''))
-            with st.form('review-'+job['id']):
-                title=st.text_input('Title',job['title'],max_chars=100)
-                description=st.text_area('Description',job.get('description',''))
-                audience=st.selectbox('Audience',['Not made for kids','Made for kids'],index=1 if job.get('made_for_kids') else 0)
-                ref=st.text_input('Permission record',value=job.get('clearance_reference',''))
-                watched=st.checkbox('I reviewed the clip and title, confirmed English dialogue (or a visual clip understandable without dialogue) and English metadata, and approve public publishing.')
-                save=st.form_submit_button('Save as ready to publish',disabled=busy)
-                publish_now=st.form_submit_button('Approve & publish now',type='primary',disabled=busy)
-            if save or publish_now:
-                if not title.strip() or not ref.strip() or not watched: st.error('Complete the title, audience, permission record and review confirmation.')
+            video,form=st.columns([1,2])
+            video.video(str(path.parent/'clip.mp4'))
+            with form:
+                st.caption(f"{job['end']-job['start']:.0f}s · Source: {job['source_url']} · {job['start']:.1f}–{job['end']:.1f}s"+(' · '+job['caption_status'] if job.get('caption_status') else ''))
+                blocked=''
+                if float(job['end'])-float(job['start'])>180: blocked='This draft is longer than 180 seconds and cannot be published.'
                 else:
+                    conflicts=p.upload_conflicts(job,check_video=False)
+                    if conflicts: blocked='Already published from this moment: '+p.describe_conflicts(conflicts)+'. Publishing is blocked to avoid a duplicate upload.'
+                if blocked: st.warning(blocked)
+                edit=job.get('editorial',{})
+                if edit: st.caption('Why this moment: '+edit.get('why_this_cut',''))
+                title=st.text_input('Title',job['title'],max_chars=100,key='title-'+job['id'])
+                with st.expander('Description, audience and details'):
+                    description=st.text_area('Description',job.get('description',''),key='desc-'+job['id'])
+                    audience=st.selectbox('Audience',['Not made for kids','Made for kids'],index=1 if job.get('made_for_kids') else 0,key='aud-'+job['id'])
+                    if edit:
+                        st.write('Other titles:',edit.get('alternative_titles',[]))
+                        st.caption(job.get('transcript_excerpt',''))
+                    if (path.parent/'captions.srt').exists():
+                        st.download_button('Download English subtitles',data=(path.parent/'captions.srt').read_bytes(),file_name=job['id']+'.en.srt',key='srt-'+job['id'])
+                go,drop=st.columns(2)
+                if go.button('Publish now',type='primary',key='pub-'+job['id'],disabled=busy or bool(blocked) or not title.strip(),use_container_width=True):
                     try:
                         with p.lock():
-                            job.update(title=title.strip(),description=description,made_for_kids=audience=='Made for kids',privacy='public',needs_editorial_review=False,clearance_reference=ref.strip())
+                            job.update(title=title.strip(),description=description,made_for_kids=audience=='Made for kids',privacy='public',needs_editorial_review=False)
                             job.pop('publish_at',None)
-                            p.write(path,job); p.write(p.DATA/'jobs'/(job['id']+'.json'),job); p.approve(job,ref)
-                        if publish_now: launch('publish',dict(ids=[job['id']]))
-                        st.rerun()
+                            p.write(path,job); p.write(p.DATA/'jobs'/(job['id']+'.json'),job); p.approve(job)
+                        launch('publish',dict(ids=[job['id']]))
                     except Exception as exc: st.error(str(exc))
-            if job.get('privacy')=='public' and not job.get('needs_editorial_review'):
-                try: p.check_approval(job); approved=True
-                except Exception: approved=False
-                if approved:
-                    st.success('Ready · Public immediately')
-                    if st.checkbox('Include in publish batch',key='select-'+job['id']): ready.append(job['id'])
-                    if st.button('Publish this clip now',key='publish-'+job['id'],disabled=busy): launch('publish',dict(ids=[job['id']]))
-    if st.button(f'Publish selected clips ({len(ready)})',type='primary',disabled=busy or not ready): launch('publish',dict(ids=ready))
+                if drop.button('Delete',key='del-'+job['id'],disabled=busy,use_container_width=True):
+                    p.discard_clip(job['id']); st.rerun()
+                if not blocked: publishable.append((path,job,title,description,audience))
+    if len(publishable)>1:
+        if st.button(f'Approve & publish all {len(publishable)} clips',disabled=busy,help='Uses the titles shown above. Each is published publicly right away.'):
+            ids=[]
+            try:
+                with p.lock():
+                    for path,job,title,description,audience in publishable:
+                        job.update(title=title.strip(),description=description,made_for_kids=audience=='Made for kids',privacy='public',needs_editorial_review=False)
+                        job.pop('publish_at',None)
+                        p.write(path,job); p.write(p.DATA/'jobs'/(job['id']+'.json'),job); p.approve(job); ids.append(job['id'])
+                launch('publish',dict(ids=ids))
+            except Exception as exc: st.error(str(exc))
 with published:
     st.subheader('Published videos by date')
     today=dt.datetime.now(ZoneInfo(defaults['timezone'])).date()

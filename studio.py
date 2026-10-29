@@ -3,7 +3,7 @@ import datetime as dt
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import pipeline as p
 
-DEFAULTS = dict(captions=True, count=3, transcription_model='small',
+DEFAULTS = dict(captions=True, count='auto', transcription_model='small',
                 editor_model='qwen2.5:7b', timezone='America/Toronto', clearance='')
 
 
@@ -17,7 +17,7 @@ def save_preferences(values):
     ZoneInfo(result['timezone'])
     if result['transcription_model'] not in ('base', 'small', 'medium'):
         raise ValueError('Choose base, small or medium transcription')
-    result['count'] = min(5, max(1, int(result['count'])))
+    result['count'] = 'auto' if result['count'] in (None, 'auto') else min(5, max(1, int(result['count'])))
     with p.lock(): p.write(p.DATA/'studio-preferences.json', result)
     return result
 
