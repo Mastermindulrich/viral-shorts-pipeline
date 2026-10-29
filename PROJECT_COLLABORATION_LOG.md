@@ -129,3 +129,5 @@ Owner request: remove the permission record, automatic clip count, delete unwant
 - Rules kept: 15–180s, public immediately, English-only, music exclusions, 10 choices, saved filters, duplicate guard.
 
 Tests: `python -m unittest discover -s tests` → 75 OK with Streamlit installed (the AppTest ran). Added a `discard_clip` test.
+
+2026-10-29 (Claude, same PR): visual polish at the owner's request — `.streamlit/config.toml` dark theme with coral accent, header with gradient title and chips, gradient primary buttons, rounded cards/metrics/video. Styling only; no behavior change. 75 tests OK; checked with a headless-browser screenshot.

@@ -12,8 +12,22 @@ import scouting
 import studio
 os.chdir(p.ROOT)
 st.set_page_config(page_title='Viral Moment Clips',page_icon='🎬',layout='wide')
-st.title('🎬 Viral Moment Clips')
-st.caption('English audience · Coherent clips up to 3 minutes · Public publishing')
+st.markdown("""<style>
+.block-container{padding-top:2rem;max-width:1200px}
+.vmc-head{display:flex;align-items:baseline;gap:.8rem;flex-wrap:wrap;margin-bottom:.2rem}
+.vmc-head h1{margin:0;font-size:2rem;font-weight:800;letter-spacing:-.02em;background:linear-gradient(90deg,#ff4b5c,#ff9a5c);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.vmc-chip{display:inline-block;padding:.15rem .65rem;border-radius:999px;font-size:.78rem;background:#232838;color:#c9d1e3;border:1px solid #2f364a}
+div[data-testid="stVerticalBlockBorderWrapper"]{border-radius:14px}
+.stButton>button,.stDownloadButton>button{border-radius:10px;font-weight:600}
+.stButton>button[kind="primary"]{background:linear-gradient(90deg,#ff4b5c,#ff7a4b);border:0}
+.stButton>button[kind="primary"]:hover{filter:brightness(1.1)}
+div[data-testid="stMetric"]{background:#181c27;border:1px solid #2a3144;border-radius:14px;padding:.7rem 1rem}
+button[data-baseweb="tab"]{font-weight:600;padding:.6rem 1rem}
+[data-testid="stExpander"]{border-radius:12px}
+video{border-radius:12px}
+</style>
+<div class="vmc-head"><h1>🎬 Viral Moment Clips</h1>
+<span class="vmc-chip">English audience</span><span class="vmc-chip">15–180 s coherent cuts</span><span class="vmc-chip">Public on approval</span></div>""",unsafe_allow_html=True)
 for folder in ['inbox','jobs','exports']: (p.DATA/folder).mkdir(parents=True,exist_ok=True)
 
 @st.cache_data(ttl=30,show_spinner=False)
@@ -52,12 +66,12 @@ def activity():
         else: st.success(message+'. Refresh the workspace below to see new clips.')
 activity()
 awaiting=len([1 for x in (p.DATA/'exports').glob('*/job.json') if not (x.parent/'upload.json').exists()])
-hero,stat=st.columns([3,1])
+hero,stat=st.columns([3,1],vertical_alignment='center')
 with hero:
     if st.button('✨ Make clips automatically',type='primary',disabled=busy,use_container_width=True,
                  help='Finds the best new video from your saved filters, cuts the clips and puts them in Review & publish. You only approve the final posting.'):
         launch('auto')
-    st.caption('One click: find a video → pick the best moments → add English subtitles → ready for your approval.')
+    st.caption('1 · Find a fresh video   →   2 · Cut the best moments with English subtitles   →   3 · You approve in Review & publish')
 with stat:
     st.metric('Awaiting your approval',awaiting)
     if st.button('Refresh',use_container_width=True): st.rerun()
