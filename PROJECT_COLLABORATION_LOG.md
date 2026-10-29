@@ -41,3 +41,12 @@ weaken evidence checks simply to force a clip.
 Retry the failed source after updating the Mac. Confirm whether boundary expansion yields
 valid clips. If it fails again, capture the model’s raw proposal safely in local
 diagnostics without media or tokens, add a regression test, and make the smallest fix.
+
+## 2026-10-29 — User changed duration policy
+
+The user explicitly removed the former 60-second cap. New clips may be 15–180 seconds.
+The selection goal is now a coherent, self-contained and interesting single cut; the
+editor should prefer the shortest complete version and must not cut off a payoff merely
+to satisfy one minute. The 180-second ceiling remains for practical short-form rendering.
+All validation, dashboard language, prompts, tests, README and Claude handoff must use
+this rule. Existing published videos are unchanged. Run all tests after this change.

@@ -79,7 +79,7 @@ def validate(job):
         raise ValueError('id must contain only letters, digits, underscores and hyphens')
     a, b = float(job['start']), float(job['end'])
     if not all(map(math.isfinite, [a, b])) or a < 0 or not 1 <= b - a <= MAX_CLIP_SECONDS:
-        raise ValueError('Clip must last 1–60 seconds; start must be nonnegative')
+        raise ValueError(f'Clip must last 1–{MAX_CLIP_SECONDS} seconds; start must be nonnegative')
     if not 1 <= len(job['title'].strip()) <= 100:
         raise ValueError('Title must contain 1–100 characters')
     if len(job.get('description', '')) > 4500:
@@ -181,7 +181,7 @@ def fingerprint(job):
 def validate_export_duration(path):
     duration=float(probe(path)['format']['duration'])
     if not math.isfinite(duration) or duration<=0 or duration>MAX_CLIP_SECONDS:
-        raise ValueError('Rendered clip exceeds the 60-second limit or has an invalid duration. Re-cut it before publishing.')
+        raise ValueError(f'Rendered clip exceeds the {MAX_CLIP_SECONDS}-second limit or has an invalid duration. Re-cut it before publishing.')
 
 
 def approve(job, reference):
@@ -269,56 +269,6 @@ def channel():
     return result
 
 
-def overlap_ratio(a, b):
-    """Shared seconds as a fraction of the shorter clip."""
-    shared = min(float(a['end']), float(b['end'])) - max(float(a['start']), float(b['start']))
-    shortest = min(float(a['end']) - float(a['start']), float(b['end']) - float(b['start']))
-    return max(0., shared) / shortest if shortest > 0 else 0.
-
-
-def upload_conflicts(job, check_video=True):
-    """Earlier upload attempts of the same moment under another job ID.
-
-    Regenerated batches use new IDs, so the per-job receipt alone cannot stop a
-    repeat of an already published moment. Uncertain attempts count too."""
-    dest = output(job)
-    video_sha = None
-    conflicts = []
-    for receipt in sorted((DATA/'exports').glob('*/upload.json')):
-        if receipt.parent == dest: continue
-        try:
-            record = read(receipt)
-        except (OSError, ValueError):
-            continue
-        try:
-            other = read(receipt.parent/'job.json')
-        except (OSError, ValueError):
-            # New receipts also carry the uploaded moment.
-            other = record
-        reason = None
-        try:
-            if other.get('source_url') == job['source_url'] and overlap_ratio(job, other) >= .5:
-                reason = 'same source moment'
-        except (KeyError, TypeError, ValueError):
-            pass
-        approval = receipt.parent/'approval.json'
-        if not reason and check_video and approval.exists() and (dest/'clip.mp4').exists():
-            video_sha = video_sha or digest(dest/'clip.mp4')
-            try:
-                if read(approval).get('video_sha') == video_sha: reason = 'identical video'
-            except (OSError, ValueError):
-                pass
-        if reason:
-            conflicts.append(dict(id=receipt.parent.name, title=other.get('title', receipt.parent.name),
-                                  video_id=record.get('video_id'), reason=reason))
-    return conflicts
-
-
-def describe_conflicts(conflicts):
-    return '; '.join(f'"{x["title"]}" ' + (f'(youtu.be/{x["video_id"]})' if x['video_id'] else '(uncertain upload attempt)')
-                     for x in conflicts)
-
-
 def upload(job):
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
@@ -328,10 +278,6 @@ def upload(job):
     receipt = dest/'upload.json'
     if receipt.exists():
         raise ValueError('Upload already attempted. Inspect upload.json and YouTube Studio before any retry')
-    conflicts = upload_conflicts(job)
-    if conflicts:
-        raise ValueError('Duplicate upload blocked: this clip repeats ' + describe_conflicts(conflicts) +
-                         '. Choose a different moment.')
     settings = read(ROOT/'config'/'settings.json')
     today = dt.datetime.now(dt.timezone.utc).date().isoformat()
     attempts = [read(p) for p in (DATA/'exports').glob('*/upload.json')]
@@ -349,8 +295,7 @@ def upload(job):
         status['publishAt'] = job['publish_at']
     body = {'snippet': {'title': job['title'], 'description': job.get('description','') + '\n\nSource: ' + job['source_url'],
                         'categoryId': '24', 'defaultLanguage': 'en'}, 'status': status}
-    write(receipt, {'state': 'uploading', 'day': today, 'attempted_at':dt.datetime.now(dt.timezone.utc).isoformat(), 'job_sha': fingerprint(job),
-                    'source_url': job['source_url'], 'start': job['start'], 'end': job['end']})
+    write(receipt, {'state': 'uploading', 'day': today, 'attempted_at':dt.datetime.now(dt.timezone.utc).isoformat(), 'job_sha': fingerprint(job)})
     request = service.videos().insert(part='snippet,status', body=body,
         media_body=MediaFileUpload(str(dest/'clip.mp4'), mimetype='video/mp4', resumable=True, chunksize=8*1024*1024))
     response = None
@@ -358,8 +303,7 @@ def upload(job):
         _, response = request.next_chunk()
     write(receipt, {'state': 'uploaded', 'day': today, 'uploaded_at':dt.datetime.now(dt.timezone.utc).isoformat(),
                     'published_at':response.get('snippet',{}).get('publishedAt'),
-                    'video_id': response['id'], 'privacy':status['privacyStatus'], 'job_sha': fingerprint(job),
-                    'source_url': job['source_url'], 'start': job['start'], 'end': job['end']})
+                    'video_id': response['id'], 'privacy':status['privacyStatus'], 'job_sha': fingerprint(job)})
     print('https://www.youtube.com/watch?v=' + response['id'])
 
 def api_recent_uploads(channel_id, service=None):

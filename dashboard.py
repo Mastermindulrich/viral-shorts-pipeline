@@ -13,12 +13,8 @@ import studio
 os.chdir(p.ROOT)
 st.set_page_config(page_title='Viral Moment Clips',page_icon='🎬',layout='wide')
 st.title('🎬 Viral Moment Clips')
-st.caption('English audience · Clips up to 60 seconds · Public publishing')
+st.caption('English audience · Coherent clips up to 3 minutes · Public publishing')
 for folder in ['inbox','jobs','exports']: (p.DATA/folder).mkdir(parents=True,exist_ok=True)
-
-@st.cache_data(ttl=30,show_spinner=False)
-def setup_checks():
-    return runtime.readiness()
 
 def launch(action,data=None):
     try: runtime.start(action,data); st.rerun()
@@ -143,8 +139,8 @@ with make:
             manual_end=b.number_input('Visual clip end (seconds)',min_value=1.,value=30.)
             manual_title=st.text_input('English title for this visual moment',max_chars=100)
             if st.button('Create visual preview',disabled=busy):
-                if not manual_title.strip() or not 1<=manual_end-manual_start<=60:
-                    st.error('Enter an English title and choose a clip between 1 and 60 seconds.')
+            if not manual_title.strip() or not 1<=manual_end-manual_start<=180:
+                    st.error('Enter an English title and choose a clip between 1 and 180 seconds.')
                 else: launch('visual',dict(path=str(source['path']),source_url=source['url'],
                                          start=manual_start,end=manual_end,title=manual_title))
     count=st.slider('Clips to suggest',1,5,int(defaults['count']))
@@ -157,10 +153,6 @@ with make:
         if st.button('Save production defaults',disabled=busy):
             studio.save_preferences(dict(count=count,captions=captions,transcription_model=quality,clearance=default_ref.strip())); st.rerun()
         st.caption('The editor reads the transcript, compares moments across the full video, then checks each final cut against surrounding dialogue. English captions use word timing when available. Visual action still needs your review.')
-    editor_check=[x for x in setup_checks() if x['name'] in ('Ollama running','Local AI editor model') and not x['ok']]
-    if editor_check:
-        st.warning('The local AI editor is not ready, so Generate clips will stop before downloading. '+
-                   ' · '.join(x['detail']+' — run: '+x['fix'] for x in editor_check)+'. Manual visual clips still work.')
     if st.button('Generate clips',type='primary',disabled=busy):
         if mode=='YouTube link':
             if not url or not clearance.strip(): st.error('Enter the link and permission record.')
@@ -179,20 +171,13 @@ with review:
     ready=[]
     for number,(path,job) in enumerate(pending,1):
         with st.expander(f"Clip {number:03d} · {job['title']}"):
-            if not (path.parent/'clip.mp4').is_file():
-                st.warning('The rendered video file is missing. Generate this clip again before publishing.')
-                continue
             st.video(str(path.parent/'clip.mp4'))
             st.caption(f"Source: {job['source_url']} · {job['start']:.1f}–{job['end']:.1f}s")
             if job.get('caption_status'): st.caption(job['caption_status']+' · '+job.get('caption_timing',''))
             if (path.parent/'captions.srt').exists():
                 st.download_button('Download English subtitles',data=(path.parent/'captions.srt').read_bytes(),file_name=job['id']+'.en.srt',key='srt-'+job['id'])
-            if float(job['end'])-float(job['start'])>60:
-                st.warning('This older draft is longer than 60 seconds and cannot be published. Generate a new batch or choose a shorter visual cut.')
-                continue
-            conflicts=p.upload_conflicts(job,check_video=False)
-            if conflicts:
-                st.warning('Already published from this moment: '+p.describe_conflicts(conflicts)+'. Publishing is blocked to avoid a duplicate upload.')
+            if float(job['end'])-float(job['start'])>180:
+                st.warning('This draft is longer than 180 seconds and cannot be published. Choose a shorter coherent cut.')
                 continue
             edit=job.get('editorial',{})
             if edit:
@@ -248,13 +233,6 @@ with published:
         else: st.warning('Upload outcome uncertain. Check YouTube Studio before retrying.'); st.json(record)
     if not shown: st.info('No uploads match this date or search. Choose All dates to see the complete history.')
 with tools:
-    st.subheader('Mac setup check')
-    checks=setup_checks()
-    missing=[x for x in checks if x['required'] and not x['ok']]
-    if missing: st.warning(f'{len(missing)} required item(s) missing. Run the commands below in Terminal from the project folder.')
-    else: st.success('Everything required is installed and running.')
-    st.code(runtime.readiness_report(checks),language=None)
-    if st.button('Re-run setup check'): setup_checks.clear(); st.rerun()
     st.subheader('Activity and diagnostics')
     report=runtime.diagnostics()
     st.code(report,language=None)

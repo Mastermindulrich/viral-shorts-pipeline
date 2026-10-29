@@ -1,8 +1,10 @@
 """Channel preferences. Metadata screening is a heuristic, not artist verification."""
 import re
 
-VERSION='fresh-events-en60-v3'
-MAX_CLIP_SECONDS=60
+VERSION='fresh-coherent-180s-v4'
+# The former one-minute cap was removed. Keep a practical three-minute ceiling so
+# clips remain short-form and rendering/upload costs remain bounded.
+MAX_CLIP_SECONDS=180
 TOPICS=[
     {'name':'Champions League and football','query':'"Champions League" | Mbappe | Messi | Ronaldo reaction controversy goal fan footage'},
     {'name':'Viral sports moments','query':'NBA | basketball | football | tennis incredible moment controversy athlete reaction'},

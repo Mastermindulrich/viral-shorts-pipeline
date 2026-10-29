@@ -100,19 +100,20 @@ class DurationPolicyTests(unittest.TestCase):
     def test_sixty_is_accepted_sixty_plus_is_rejected(self):
         job=dict(id='test',start=100,end=160,title='Test',source_url='test',made_for_kids=False)
         p.validate(job)
-        for duration in (60.001,75,90,180):
-            with self.subTest(duration=duration),self.assertRaisesRegex(ValueError,'60'):
+        for duration in (180.001,240):
+            with self.subTest(duration=duration),self.assertRaisesRegex(ValueError,'180'):
                 p.validate(dict(job,end=100+duration))
 
     def test_real_media_duration_checked_not_only_job_metadata(self):
-        for duration in (60.001,float('nan'),float('inf')):
+        for duration in (180.001,float('nan'),float('inf')):
             with patch.object(p,'probe',return_value={'format':{'duration':str(duration)}}),self.assertRaises(ValueError):
                 p.validate_export_duration('unused')
-        with patch.object(p,'probe',return_value={'format':{'duration':'60.0'}}): p.validate_export_duration('unused')
+        with patch.object(p,'probe',return_value={'format':{'duration':'180.0'}}): p.validate_export_duration('unused')
 
     def test_editor_rejects_long_and_non_english_scenes(self):
         fixture=test_editorial.EditorialTests(); fixture.setUp()
         segments=copy.deepcopy(fixture.segments); segments[-1]['end']=61
-        with self.assertRaisesRegex(ValueError,'60'): editorial.validate_scene(fixture.scene,segments)
+        long_segments=copy.deepcopy(segments)+[dict(start=40,end=181,text='Extra context')]
+        with self.assertRaisesRegex(ValueError,'180'): editorial.validate_scene(dict(fixture.scene,last_segment=3),long_segments)
         with self.assertRaisesRegex(ValueError,'English'):
             editorial.validate_scene(dict(fixture.scene,spoken_language='fr'),fixture.segments)

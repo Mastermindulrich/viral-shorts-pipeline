@@ -33,7 +33,7 @@ The user wants minimal input, but final review and the user's external permissio
 
 ## 2. Non-negotiable content rules
 
-- Every exported and uploaded clip must be 60 seconds or less. This is checked in job validation, rendering, approval and upload, including measured media duration.
+- The former 60-second cap is removed. New clips are 15–180 seconds, with the shortest coherent self-contained cut preferred. The 180-second ceiling is checked in validation, rendering, approval and upload, including measured media duration.
 - Automatically edited dialogue must be English. High-confidence non-English transcription blocks automatic dialogue editing.
 - Visual dance, sports action and other silent/visual moments can be selected manually.
 - Original audio is preserved. There is no narration or synthetic voice.
@@ -97,7 +97,7 @@ Automatic preparation:
 1. transcribe with local faster-whisper
 2. use word timestamps where available
 3. map topics over the full transcript
-4. propose complete 15–60 second scenes
+4. propose complete 15–180 second scenes
 5. rank distinct scenes
 6. run a second context-audit pass against surrounding dialogue
 7. validate evidence quotes, numbers, title claims, language, boundaries, payoff and non-overlap
@@ -110,7 +110,7 @@ Manual visual path:
 
 `Make clips → Already imported video → Choose a visual moment manually`
 
-The user previews the source and enters start/end seconds, an English title and a 1–60 second duration. The app attempts English transcription only on that selected interval for subtitles. It cannot visually verify a goal, stunt, facial expression or engineering demonstration, so the preview must be checked.
+The user previews the source and enters start/end seconds, an English title and a 1–180 second duration. The app attempts English transcription only on that selected interval for subtitles. It cannot visually verify a goal, stunt, facial expression or engineering demonstration, so the preview must be checked.
 
 ### Subtitles
 
@@ -157,7 +157,7 @@ Default timezone is `America/Toronto`; it can be changed in Activity & settings.
 - `dashboard.py` — primary Streamlit guided UI and workflow tabs
 - `dashboard_legacy.py` — retained manual fallback dashboard
 - `pipeline.py` — validation, FFmpeg rendering, captions, approval hashes, YouTube OAuth upload, channel guard, upload receipts, recent upload helpers
-- `content_policy.py` — English/60-second/music exclusion policy, topic overlays and source classification estimate
+- `content_policy.py` — English/180-second/music exclusion policy, topic overlays and source classification estimate
 - `scouting.py` — discovery, rotating searches, enrichment, momentum ranking, saved filters, shortlist diversity, hidden IDs and exclusions
 - `editorial.py` — local Ollama semantic scene selection, topic map, ranking and final context audit
 - `preparation.py` — yt-dlp import, faster-whisper transcription, SRT/caption preparation, semantic draft generation and visual caption attempt
@@ -276,7 +276,7 @@ and the boundary-expansion fix that must be tested next.
 
 Paste this into Claude Code after it has access to the repository:
 
-> Read `CLAUDE_HANDOFF.md` completely before changing anything. You are taking over the existing Viral Moment Clips project, not starting a new app. Treat GitHub `main` and this handoff as the authoritative current state. First inspect the repository, current branch, tests and recent commit `ea8ae8dbbe14869dad49d75b9b1c904803416aa8`. Do not reset, rewrite or remove existing user data, OAuth credentials, `data/` files, public-upload behavior, music exclusion, English-only policy or the 60-second limit. Run the test suite before making changes, then make a concrete implementation plan based on the current code. Keep the dashboard workflow streamlined: recent discovery → 10 strong choices → accurate complete scene selection → English subtitles → one review/approval → public upload. Preserve the user’s desired categories and saved filtering/date-history behavior. Do not expose or request secrets in chat. If local execution is needed, check for `.venv`, FFmpeg, Ollama and `qwen2.5:7b`; explain any missing dependency clearly. Before proposing a change, run relevant tests and show the result. Before opening a PR or pushing, provide a reviewable summary and validation results. Do not create a replacement architecture without first understanding the existing modules and data contracts.
+> Read `CLAUDE_HANDOFF.md` completely before changing anything. You are taking over the existing Viral Moment Clips project, not starting a new app. Treat GitHub `main` and this handoff as the authoritative current state. First inspect the repository, current branch, tests and recent commit `ea8ae8dbbe14869dad49d75b9b1c904803416aa8`. Do not reset, rewrite or remove existing user data, OAuth credentials, `data/` files, public-upload behavior, music exclusion, English-only policy or the 15–180 second coherent-cut rule. Run the test suite before making changes, then make a concrete implementation plan based on the current code. Keep the dashboard workflow streamlined: recent discovery → 10 strong choices → accurate complete scene selection → English subtitles → one review/approval → public upload. Preserve the user’s desired categories and saved filtering/date-history behavior. Do not expose or request secrets in chat. If local execution is needed, check for `.venv`, FFmpeg, Ollama and `qwen2.5:7b`; explain any missing dependency clearly. Before proposing a change, run relevant tests and show the result. Before opening a PR or pushing, provide a reviewable summary and validation results. Do not create a replacement architecture without first understanding the existing modules and data contracts.
 
 Claude should then be asked to begin with:
 

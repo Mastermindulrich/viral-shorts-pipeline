@@ -2,7 +2,7 @@
 
 A local Shorts studio: discover promising YouTube sources, select complete moments,
 create English captions, review and publish. Original sound only; no narration.
-Every exported clip must be 60 seconds or less. The dashboard publishes approved
+The former 60-second cap has been removed. New clips may be up to 180 seconds, with the shortest coherent self-contained cut preferred. The dashboard publishes approved
 clips **public immediately**; YouTube processing or channel restrictions can delay playback.
 
 ## Daily workflow
@@ -120,21 +120,6 @@ cd viral-shorts-pipeline
 bash Install-Mac.command
 ```
 
-The installer creates `.venv` with Python 3.11+ if it is missing, installs dependencies,
-runs a setup check and installs the launcher. Re-running it keeps `data/` and your settings.
-Check local readiness at any time (also shown under **Activity & settings → Mac setup check**):
-
-```bash
-cd ~/viral-shorts-pipeline
-.venv/bin/python app_runtime.py doctor
-```
-
-It reports Python, `.venv`, packages, FFmpeg/ffprobe, burned-subtitle support, whether
-Ollama is running, whether `qwen2.5:7b` is pulled and whether YouTube sign-in exists, with
-the exact command for anything missing. It never prints credential contents.
-**Generate clips** checks Ollama and the model first, so a missing editor fails in seconds
-instead of after a long download and transcription.
-
 For an existing installation, use **Activity & settings → Update app**. It fetches the
 configured upstream, accepts only a fast-forward update, preserves local JSON config,
 installs dependencies, runs checks and restarts the service. Failed installation/tests
@@ -161,11 +146,7 @@ test runs when the subtitles filter exists; its explicit skip does not skip core
 Sources and final editorial review remain under the owner's control. The pipeline records
 an external permission reference, not a licensing determination. Approval is bound to the
 exact exported bytes and job metadata. Uploads verify the expected channel and use durable
-reservations to prevent automatic duplicate attempts after ambiguous failures. A clip is
-also blocked when an earlier upload attempt (confirmed or uncertain) used the same source
-and overlaps at least half of the shorter clip, or has identical video bytes, so a
-regenerated batch cannot republish a moment. Review & publish shows these as warnings.
-In a multi-clip publish, a blocked clip no longer stops the remaining clips. The daily
+reservations to prevent automatic duplicate attempts after ambiguous failures. The daily
 attempt limit uses UTC independently of the publishing-history display timezone.
 
 Discovery and preparation run on demand. There is no unattended scheduled ingestion,
