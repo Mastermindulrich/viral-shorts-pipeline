@@ -192,6 +192,8 @@ The dashboard starts a separate local worker process for `scout`, `rescreen`, `i
 
 The app cannot process while the Mac is asleep. Ollama must be running for semantic selection. No unattended daily ingestion is currently enabled; scouting is on demand.
 
+Resilience (2026-10-29): network-bound tasks retry automatically (`app_runtime.retry`, never for `ValueError`). The `auto` task / **Auto-run** button scouts, picks the top unused shortlist video, imports it with the saved default permission record and prepares clips for review. `pipeline.reconcile_receipts` resolves `uploading` receipts by exact title match before each publish. Publishing a batch continues past failed clips.
+
 ## 6. Mac installation and update
 
 The actual installed Mac project is normally `~/viral-shorts-pipeline`. The Finder app is `~/Applications/Viral Moment Clips.app`. launchd label is `com.viralmomentclips.dashboard`. Dashboard is `http://127.0.0.1:8501`.

@@ -74,7 +74,10 @@ with find:
             if st.form_submit_button('Save discovery filters',disabled=busy):
                 scouting.save_preferences(dict(categories=categories,days=days,min_views=min_views,min_views_per_hour=min_vph,source_preference=preference,event_queries=events,include_keywords=include,exclude_keywords=exclude,blocked_channels=blocked)); st.rerun()
     st.caption(f"Last {prefs['days']} days · {prefs['min_views']:,}+ views · {prefs['min_views_per_hour']:,}+ views/hour · {prefs['source_preference']}")
-    if st.button('Find and rank videos',type='primary',disabled=busy): launch('scout')
+    a1,a2=st.columns(2)
+    if a1.button('Find and rank videos',type='primary',disabled=busy): launch('scout')
+    if a2.button('Auto-run: find the best video and make clips',disabled=busy,help='Scouts, picks the top new video from your saved filters, and prepares clips for review. Needs a saved default permission record.'):
+        launch('auto')
     if (p.DATA/'discovery-rotation.json').exists():
         scan=p.read(p.DATA/'discovery-rotation.json')
         st.caption('Last searched: '+', '.join(scan.get('last_topics',[]))+'. Next scans rotate through your selected topics.')

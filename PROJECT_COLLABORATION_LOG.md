@@ -99,3 +99,19 @@ Tests: `python -m unittest discover -s tests -v` → 70 passed (with dependencie
 
 Next: the owner runs Update app on the Mac. If validation still fails, paste the tail of
 `data/logs/update-checks.log` (it contains no secrets).
+
+## 2026-10-29 — Claude — Fewer interventions: auto-run, retries, upload reconciliation
+
+Owner request: intervene less, be robust to failures, smoother flow, low usage. Edited latest `main` (bdd24f6) in place; no features or tests removed.
+
+- `app_runtime.retry`: automatic retry with backoff (5s, 30s, 3 attempts) for transient network-style failures in scout, rank, rescreen, download, scene selection and date sync. `ValueError` (policy, validation, duplicate) is never retried. Retry status shows in the activity banner.
+- New `auto` task and dashboard button **Auto-run: find the best video and make clips** (Find videos). It scouts, takes the top shortlist video (saved filters, 10-choice diversity, hidden list all apply) not already imported/used, imports with the saved default permission record, and prepares clips for review. If one source fails it hides it and tries the next (up to 3). It requires the saved permission record and a running Ollama. Final clip review and the owner's approval stay.
+- `pipeline.reconcile_receipts`: receipts stuck in `uploading` after an ambiguous failure are resolved by matching the exact title published after the attempt on the channel's upload list; nothing is re-uploaded. Runs at the start of each publish task.
+- Upload chunks now use `next_chunk(num_retries=5)` (same resumable session, so no duplicate risk).
+- Publish tasks continue past a failed clip and report "N of M clips not published".
+- Fixed stale "maximum 60 seconds" stage text for visual clips (now 15 to 180).
+- Rules kept: 15–180s, public immediately, English-only, music exclusions, 10 choices, saved filters, duplicate guard.
+
+Tests: `python -m unittest discover -s tests` → 75 tests, OK (2 skipped on bare Python). Added 5 tests in `tests/test_runtime.py`.
+
+Next: owner clicks Update app, saves a default permission record, then tries Auto-run. Possible later step: scheduled daily auto-run via launchd.

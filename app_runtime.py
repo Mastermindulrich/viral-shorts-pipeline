@@ -42,6 +42,24 @@ def _start(action, payload=None):
     p.write(STATE,dict(status='running',action=action,pid=child.pid,started=dt.datetime.now().isoformat(),request=ident))
     return ident
 
+TRANSIENT_HINTS=('timed out','timeout','temporarily','connection','network','unreachable','reset by peer','503','502','500','429','quota exceeded','rate limit','http error 5','remote end closed','name resolution','ssl')
+
+def transient(exc):
+    """Network-style failures that deserve another attempt; policy and validation errors never do."""
+    if isinstance(exc,(ValueError,PermissionError,FileNotFoundError,KeyError)): return False
+    if isinstance(exc,(ConnectionError,TimeoutError,OSError)) and not isinstance(exc,(FileExistsError,IsADirectoryError)): return True
+    text=str(exc).lower()
+    return any(x in text for x in TRANSIENT_HINTS)
+
+def retry(function,label,attempts=3,delays=(5,30),sleep=time.sleep):
+    for number in range(1,attempts+1):
+        try: return function()
+        except Exception as exc:
+            if number>=attempts or not transient(exc): raise
+            wait=delays[min(number-1,len(delays)-1)]
+            stage(f'{label} hit a temporary problem ({str(exc)[:120]}). Retrying automatically in {wait}s (attempt {number+1} of {attempts})')
+            sleep(wait)
+
 def stage(message):
     print(message,flush=True)
     state=p.read(STATE) if STATE.exists() else {}
@@ -61,22 +79,22 @@ def execute(request):
         with p.lock():
             if action=='scout':
                 import scouting
-                stage('Searching recent events and selected topics'); result=scouting.discover_broad()
+                stage('Searching recent events and selected topics'); result=retry(scouting.discover_broad,'Search')
                 for warning in result.get('warnings',[]): print('Discovery warning: '+warning,flush=True)
-                stage('Ranking sources'); scouting.refresh()
+                stage('Ranking sources'); retry(scouting.refresh,'Ranking')
             elif action=='rescreen':
                 import scouting
                 stage('Rechecking saved videos with current music and language filters')
-                scouting.refresh()
+                retry(scouting.refresh,'Recheck')
             elif action=='sync_history':
                 import studio
                 stage('Reading exact publication dates from YouTube')
-                count=studio.sync_publication_dates()
+                count=retry(studio.sync_publication_dates,'Date sync')
                 print(f'Updated {count} publication timestamps.',flush=True)
             elif action=='import':
                 import preparation as prep
                 stage('Importing source for visual selection')
-                prep.import_video(data['url'],data['clearance'])
+                retry(lambda:prep.import_video(data['url'],data['clearance']),'Download')
             elif action=='prepare':
                 import preparation as prep
                 import editorial
@@ -84,13 +102,15 @@ def execute(request):
                 stage('Checking the local AI editor')
                 editorial.require_model(studio.preferences()['editor_model'])
                 if data.get('url'):
-                    stage('Downloading source'); source=prep.import_video(data['url'],data['clearance']); path=source['input']; url=source['source_url']
+                    stage('Downloading source'); source=retry(lambda:prep.import_video(data['url'],data['clearance']),'Download'); path=source['input']; url=source['source_url']
                 else: path=data['path']; url=data['source_url']
                 stage('Transcribing and selecting complete scenes — this can take several minutes')
                 defaults=studio.preferences()
-                prep.prepare(path,url,data.get('count',defaults['count']),
+                retry(lambda:prep.prepare(path,url,data.get('count',defaults['count']),
                              data.get('transcription_model',defaults['transcription_model']),data.get('captions',defaults['captions']),
-                             'semantic',defaults['editor_model'])
+                             'semantic',defaults['editor_model']),'Scene selection')
+            elif action=='auto':
+                auto_batch()
             elif action=='visual':
                 import uuid
                 import preparation as prep
@@ -123,6 +143,44 @@ def execute(request):
     except Exception as exc:
         traceback.print_exc()
         state=p.read(STATE); state.update(status='failed',error=str(exc)); p.write(STATE,state)
+
+def auto_batch(limit=3):
+    """Scout, pick the best fresh shortlist video and prepare review-ready clips with no clicks in between."""
+    import scouting, studio
+    import preparation as prep
+    defaults=studio.preferences()
+    if not defaults['clearance'].strip():
+        raise ValueError('Save a default permission record in Make clips first; Auto-run uses it for every source.')
+    import editorial
+    editorial.require_model(defaults['editor_model'])
+    stage('Searching recent events and selected topics')
+    result=retry(scouting.discover_broad,'Search')
+    for warning in result.get('warnings',[]): print('Discovery warning: '+warning,flush=True)
+    stage('Ranking sources'); ranked=retry(scouting.refresh,'Ranking')
+    used=used_sources()
+    choices=[x for x in scouting.shortlist(scouting.visible_ranked(ranked)) if x['url'] not in used][:limit]
+    if not choices: raise ValueError('No new videos meet your saved filters. Widen the date window or lower the view thresholds.')
+    errors=[]
+    for item in choices:
+        try:
+            stage('Auto-run: '+item['title'][:80])
+            source=retry(lambda:prep.import_video(item['url'],defaults['clearance']),'Download')
+            retry(lambda:prep.prepare(source['input'],source['source_url'],defaults['count'],defaults['transcription_model'],
+                                      defaults['captions'],'semantic',defaults['editor_model']),'Scene selection')
+            stage('Clips are ready in Review & publish'); return
+        except Exception as exc:
+            traceback.print_exc(); errors.append(f"{item['title'][:50]}: {exc}")
+            try: scouting.hide_video(item)
+            except Exception: pass
+    raise RuntimeError('Auto-run could not prepare any of the top videos — '+' | '.join(errors))
+
+def used_sources():
+    urls=set()
+    for pattern in ('imports/*/source.json','exports/*/upload.json','exports/*/job.json'):
+        for path in (p.DATA).glob(pattern):
+            try: urls.add(p.read(path).get('source_url',''))
+            except Exception: pass
+    urls.discard(''); return urls
 
 def diagnostics():
     text=LOG.read_text(errors='replace')[-24000:] if LOG.exists() else 'No activity logs yet.'

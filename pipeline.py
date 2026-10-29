@@ -355,12 +355,30 @@ def upload(job):
         media_body=MediaFileUpload(str(dest/'clip.mp4'), mimetype='video/mp4', resumable=True, chunksize=8*1024*1024))
     response = None
     while response is None:
-        _, response = request.next_chunk()
+        _, response = request.next_chunk(num_retries=5)
     write(receipt, {'state': 'uploaded', 'day': today, 'uploaded_at':dt.datetime.now(dt.timezone.utc).isoformat(),
                     'published_at':response.get('snippet',{}).get('publishedAt'),
                     'video_id': response['id'], 'privacy':status['privacyStatus'], 'job_sha': fingerprint(job),
                     'source_url': job['source_url'], 'start': job['start'], 'end': job['end']})
     print('https://www.youtube.com/watch?v=' + response['id'])
+
+def reconcile_receipts(window_hours=48):
+    """Resolve receipts left in 'uploading' by an ambiguous failure, using the channel's own upload list.
+    Matching is by exact title published after the attempt; nothing is ever re-uploaded."""
+    pending=[(x,read(x)) for x in (DATA/'exports').glob('*/upload.json')]
+    pending=[(x,r) for x,r in pending if r.get('state')=='uploading']
+    if not pending: return 0
+    recent=recent_uploads(read(ROOT/'config'/'settings.json').get('expected_channel_id'))
+    fixed=0
+    for path,receipt in pending:
+        job=read(path.parent/'job.json')
+        for video in recent:
+            if video['title']==job['title'] and video['published']>=receipt.get('attempted_at','')[:19]:
+                write(path,dict(receipt,state='uploaded',video_id=video['id'],published_at=video['published'],
+                                privacy=job.get('privacy','public'),uploaded_at=receipt.get('attempted_at'),reconciled=True))
+                fixed+=1; break
+    return fixed
+
 
 def api_recent_uploads(channel_id, service=None):
     if service is None:
