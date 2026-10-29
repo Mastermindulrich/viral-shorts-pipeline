@@ -139,7 +139,7 @@ with make:
             manual_end=b.number_input('Visual clip end (seconds)',min_value=1.,value=30.)
             manual_title=st.text_input('English title for this visual moment',max_chars=100)
             if st.button('Create visual preview',disabled=busy):
-            if not manual_title.strip() or not 1<=manual_end-manual_start<=180:
+                if not manual_title.strip() or not 1<=manual_end-manual_start<=180:
                     st.error('Enter an English title and choose a clip between 1 and 180 seconds.')
                 else: launch('visual',dict(path=str(source['path']),source_url=source['url'],
                                          start=manual_start,end=manual_end,title=manual_title))
