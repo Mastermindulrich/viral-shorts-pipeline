@@ -94,7 +94,7 @@ def execute(request):
             elif action=='import':
                 import preparation as prep
                 stage('Importing source for visual selection')
-                retry(lambda:prep.import_video(data['url'],data['clearance']),'Download')
+                retry(lambda:prep.import_video(data['url'],data.get('clearance','')),'Download')
             elif action=='prepare':
                 import preparation as prep
                 import editorial
@@ -102,7 +102,7 @@ def execute(request):
                 stage('Checking the local AI editor')
                 editorial.require_model(studio.preferences()['editor_model'])
                 if data.get('url'):
-                    stage('Downloading source'); source=retry(lambda:prep.import_video(data['url'],data['clearance']),'Download'); path=source['input']; url=source['source_url']
+                    stage('Downloading source'); source=retry(lambda:prep.import_video(data['url'],data.get('clearance','')),'Download'); path=source['input']; url=source['source_url']
                 else: path=data['path']; url=data['source_url']
                 stage('Transcribing and selecting complete scenes — this can take several minutes')
                 defaults=studio.preferences()
@@ -149,8 +149,6 @@ def auto_batch(limit=3):
     import scouting, studio
     import preparation as prep
     defaults=studio.preferences()
-    if not defaults['clearance'].strip():
-        raise ValueError('Save a default permission record in Make clips first; Auto-run uses it for every source.')
     import editorial
     editorial.require_model(defaults['editor_model'])
     stage('Searching recent events and selected topics')
@@ -164,7 +162,7 @@ def auto_batch(limit=3):
     for item in choices:
         try:
             stage('Auto-run: '+item['title'][:80])
-            source=retry(lambda:prep.import_video(item['url'],defaults['clearance']),'Download')
+            source=retry(lambda:prep.import_video(item['url'],defaults.get('clearance','')),'Download')
             retry(lambda:prep.prepare(source['input'],source['source_url'],defaults['count'],defaults['transcription_model'],
                                       defaults['captions'],'semantic',defaults['editor_model']),'Scene selection')
             stage('Clips are ready in Review & publish'); return

@@ -161,7 +161,7 @@ def render(job):
     tmp = dest / 'clip.partial.mp4'
     run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(job['start']), '-i', str(src),
          '-t', str(job['end']-job['start']), '-map', '0:v:0', '-map', '0:a:0', '-vf', vf,
-         '-r', '30', '-c:v', 'libx264', '-preset', 'fast', '-crf', '21', '-pix_fmt', 'yuv420p',
+         '-r', '30', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p',
          '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', str(tmp.resolve())], cwd=dest)
     validate_export_duration(tmp)
     tmp.replace(dest / 'clip.mp4')
@@ -184,15 +184,27 @@ def validate_export_duration(path):
         raise ValueError(f'Rendered clip exceeds the {MAX_CLIP_SECONDS}-second limit or has an invalid duration. Re-cut it before publishing.')
 
 
-def approve(job, reference):
+DEFAULT_REFERENCE = 'Owner-confirmed at approval'
+
+
+def discard_clip(ident):
+    """Delete an unpublished clip's draft and export. Anything with an upload receipt is kept."""
+    import shutil
+    dest = DATA/'exports'/ident
+    if (dest/'upload.json').exists():
+        raise ValueError('This clip has an upload record and cannot be deleted')
+    shutil.rmtree(dest, ignore_errors=True)
+    (DATA/'jobs'/(ident+'.json')).unlink(missing_ok=True)
+
+
+def approve(job, reference=''):
+    reference = (reference or '').strip() or DEFAULT_REFERENCE
     validate(job)
     if job.get('needs_editorial_review'):
         raise ValueError('Review draft title and audience settings before approval')
     dest = output(job)
     if read(dest/'job.json') != job:
         raise ValueError('Job changed since rendering; render again')
-    if not reference.strip():
-        raise ValueError('Provide your external clearance reference')
     validate_export_duration(dest/'clip.mp4')
     write(dest/'approval.json', {'job_sha': fingerprint(job), 'video_sha': digest(dest/'clip.mp4'),
           'clearance_reference': reference, 'approved_at': dt.datetime.now(dt.timezone.utc).isoformat()})

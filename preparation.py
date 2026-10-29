@@ -28,10 +28,9 @@ def video_url(url):
     return 'https://www.youtube.com/watch?v='+vid
 
 
-def import_video(url, clearance):
+def import_video(url, clearance=''):
     url = video_url(url)
-    if not clearance.strip():
-        raise ValueError('Record the reference from your separate content-clearance process')
+    clearance = clearance.strip() or p.DEFAULT_REFERENCE
     from yt_dlp import YoutubeDL
     vid = parse_qs(urlparse(url).query)['v'][0]
     folder = p.DATA/'imports'/vid
@@ -44,7 +43,7 @@ def import_video(url, clearance):
             return old
     folder.mkdir(parents=True, exist_ok=True)
     opts = dict(noplaylist=True, outtmpl=str(folder/'source.%(ext)s'),
-                format='bv[height<=1080]+ba/b[height<=1080]', merge_output_format='mp4',
+                format='bv[height<=720]+ba/b[height<=720]', merge_output_format='mp4',
                 socket_timeout=30, retries=2, fragment_retries=2, quiet=True,
                 max_filesize=2_000_000_000)
     with YoutubeDL(opts) as ydl:
@@ -93,7 +92,7 @@ def windows(segments, limit=3):
     return sorted(selected,key=lambda x:x['start'])
 
 
-def prepare(source, source_url, count=3, model='base', captions=False, editor='basic', editor_model='qwen2.5:7b'):
+def prepare(source, source_url, count='auto', model='base', captions=False, editor='basic', editor_model='qwen2.5:7b'):
     source=Path(source).resolve()
     receipt=source.parent/'source.json'
     record={}
@@ -106,7 +105,7 @@ def prepare(source, source_url, count=3, model='base', captions=False, editor='b
     if not transcript.exists():
         from faster_whisper import WhisperModel
         segments,language_info=WhisperModel(model,device='cpu',compute_type='int8').transcribe(
-            str(source),vad_filter=True,word_timestamps=True,beam_size=5)
+            str(source),vad_filter=True,word_timestamps=True,beam_size=1)
         p.write(transcript,[dict(start=s.start,end=s.end,text=s.text.strip(),
             words=[dict(start=w.start,end=w.end,word=w.word) for w in (s.words or [])]) for s in segments])
         p.write(transcript.with_suffix('.language.json'),dict(language=language_info.language,
@@ -116,6 +115,10 @@ def prepare(source, source_url, count=3, model='base', captions=False, editor='b
         language=p.read(language_path)
         if language.get('language')!='en' and language.get('probability',0)>=.8:
             raise ValueError('English dialogue required for automatic editing. For visual dance, choose a manual cut and review any dialogue.')
+    if count in (None,'auto'):
+        spoken=p.read(transcript)
+        minutes=(float(spoken[-1]['end']) if spoken else 0)/60
+        count=min(5,max(1,round(minutes/6)))
     if editor=='semantic':
         import editorial
         metadata={}

@@ -115,3 +115,19 @@ Owner request: intervene less, be robust to failures, smoother flow, low usage. 
 Tests: `python -m unittest discover -s tests` → 75 tests, OK (2 skipped on bare Python). Added 5 tests in `tests/test_runtime.py`.
 
 Next: owner clicks Update app, saves a default permission record, then tries Auto-run. Possible later step: scheduled daily auto-run via launchd.
+
+## 2026-10-29 — Claude — Simpler flow, delete in review, faster clip generation, "no clips" fix
+
+Owner request: remove the permission record, automatic clip count, delete unwanted clips in Review, friendlier UI with fewer steps before authorizing, find why Generate clips produced nothing, make generation faster.
+
+- **Why no clips:** `data/logs/activity.log` showed `prepare` failing with "No complete scenes passed the final context review". The final audit asked a 7B model to re-emit the full scene schema; omitted or partial fields failed `validate_scene`, so every scene was dropped. Fix: `editorial.select_scenes` fills omitted fields from the already-validated proposal before validating. Hallucinated evidence/ids are still rejected and an auditor that genuinely omits all candidates still yields an error (existing tests unchanged). Not verifiable on the owner's Mac from here; if it recurs, share the tail of `data/logs/activity.log`.
+- **Permission record removed from the UI.** Backend keeps a reference so receipts/approvals stay bound: `pipeline.DEFAULT_REFERENCE`. Approval is the Publish press.
+- **Automatic clip count** (`count='auto'`: about one per 6 min of speech, 1–5).
+- **Review & publish:** card per clip with Publish now / Delete / Approve & publish all; `pipeline.discard_clip` refuses clips with an upload receipt.
+- **UI:** hero button "Make clips automatically" and an "Awaiting your approval" counter; tabs renamed (test_dashboard updated for the new tab labels, the owner-requested UI change); the shortlist keeps Use this video and Generate clips from this video.
+- **Speed:** 720p download cap, Whisper `beam_size=1`, FFmpeg `veryfast` crf 22, final audit limited to limit+2 candidates.
+- Rules kept: 15–180s, public immediately, English-only, music exclusions, 10 choices, saved filters, duplicate guard.
+
+Tests: `python -m unittest discover -s tests` → 75 OK with Streamlit installed (the AppTest ran). Added a `discard_clip` test.
+
+2026-10-29 (Claude, same PR): visual polish at the owner's request — `.streamlit/config.toml` dark theme with coral accent, header with gradient title and chips, gradient primary buttons, rounded cards/metrics/video. Styling only; no behavior change. 75 tests OK; checked with a headless-browser screenshot.

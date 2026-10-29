@@ -8,12 +8,8 @@ clips **public immediately**; YouTube processing or channel restrictions can del
 ## Daily workflow
 
 1. Open **Viral Moment Clips.app** from your Mac Applications folder.
-2. In **Find videos**, click **Find and rank videos**. Each round shows up to **10 choices**.
-3. Pick **Generate clips from this video** if you saved an applicable permission
-   reference. Otherwise choose **Use this video**, then **Make clips**, enter the
-   permission reference and click **Generate clips**.
-4. Open **Review & publish**, watch the preview, check the title, captions and
-   audience, tick the review confirmation and click **Approve & publish now**.
+2. Click **Make clips automatically** at the top. It finds the best new video from your saved filters, cuts the clips and adds English subtitles. (Or use **Find videos** to pick one of 10 choices yourself, or **Make clips from a link**.)
+3. Open **Review & publish**, watch each clip, adjust the title if needed, then click **Publish now** (your approval; the clip goes public immediately) or **Delete** to discard it.
    You can also save approvals and publish a selected batch.
 5. **Published** defaults to today's uploads. Choose a particular day, month, year,
    all dates, or search titles. Dates use America/Toronto by default; change that

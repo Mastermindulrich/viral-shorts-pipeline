@@ -177,7 +177,7 @@ Source context: '''+json.dumps(metadata or {})+'\nTranscript section: '+json.dum
     ordered.extend(i for i in sorted(pool,key=lambda i:candidates[i]['score'],reverse=True) if i not in ordered)
     # A second pass sees actual dialogue plus adjacent context, not just summaries.
     # It can tighten boundaries or reject a catchy fragment that loses essential context.
-    audit_ids=ordered[:min(10,max(3,limit*2))]
+    audit_ids=ordered[:limit+2]
     contexts=[]
     for i in audit_ids:
         candidate=candidates[i]
@@ -197,6 +197,10 @@ Omit weak candidates entirely. No invented visual facts. Maximum 180 seconds.\n'
         if type(ident) is not int or ident not in audit_ids or ident in seen: continue
         seen.add(ident)
         context=next(x for x in contexts if x['id']==ident)
+        # A small local model often returns only the changed fields; fill the rest from the validated proposal.
+        base={k:v for k,v in context['proposal'].items() if k in ('first_segment','last_segment','topic','setup','payoff',
+              'why_this_cut','title','alternative_titles','evidence_quote','scores')}
+        item={**base,'spoken_language':'en',**{k:v for k,v in item.items() if v not in (None,'',[],{})}}
         try: x=validate_scene(item,segments,context['allowed_first'],context['allowed_last']+1)
         except (ValueError,TypeError,KeyError) as exc:
             rejects.append('Final review: '+str(exc)); continue

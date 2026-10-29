@@ -67,10 +67,14 @@ class ResilienceTests(unittest.TestCase):
         with patch.object(r,'stage'), self.assertRaises(TimeoutError):
             r.retry(down,'Test',attempts=2,sleep=lambda s:None)
 
-    def test_auto_requires_saved_permission_record(self):
-        import studio
-        with patch.object(studio,'preferences',return_value=dict(clearance='')), self.assertRaises(ValueError):
-            r.auto_batch()
+    def test_discard_clip_removes_draft_but_keeps_published(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(p,'DATA',Path(folder)):
+            data=Path(folder)
+            p.write(data/'exports'/'a'/'job.json',{}); p.write(data/'jobs'/'a.json',{})
+            p.discard_clip('a')
+            self.assertFalse((data/'exports'/'a').exists()); self.assertFalse((data/'jobs'/'a.json').exists())
+            p.write(data/'exports'/'b'/'upload.json',{})
+            with self.assertRaises(ValueError): p.discard_clip('b')
 
     def test_reconcile_marks_matching_upload_without_reuploading(self):
         with tempfile.TemporaryDirectory() as folder:

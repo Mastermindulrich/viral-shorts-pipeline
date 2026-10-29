@@ -142,7 +142,6 @@ Every job remains in review until the user:
 - watches the actual preview
 - checks the title and description
 - confirms audience setting
-- enters/keeps the permission reference
 - confirms the clip is English dialogue or understandable visual footage
 - clicks **Approve & publish now**, or saves as ready and later publishes one or more jobs
 
@@ -162,6 +161,10 @@ Published history is app-produced uploads, not every video on the channel. It su
 - title search
 
 Default timezone is `America/Toronto`; it can be changed in Activity & settings. New receipts save upload and YouTube publication timestamps. **Refresh publication dates from YouTube** backfills exact timestamps and current recorded visibility for older receipts without retrying or modifying uploads. Legacy receipts remain labelled as legacy UTC dates until backfilled.
+
+**Owner changes 2026-10-29 (second request):** the permission-record field is removed from the UI; imports and approvals store the placeholder `pipeline.DEFAULT_REFERENCE` ('Owner-confirmed at approval') so receipts and approval hashes keep a reference, and the Publish press is the owner's authorization. The clip count is automatic (about one per 6 minutes of speech, 1–5; `studio` default `count='auto'`). Review & publish has per-clip **Publish now** and **Delete** (`pipeline.discard_clip`; refuses anything with an upload receipt) and **Approve & publish all**. The top of the dashboard has **Make clips automatically** (the `auto` task). Tabs are now: Find videos, Make clips from a link, Review & publish, Published, Settings.
+
+Speed: download capped at 720p, Whisper `beam_size=1`, FFmpeg `veryfast`/crf 22, the final audit reviews only `limit+2` candidates. The final audit now merges omitted fields from the validated proposal (a 7B model often returns partial JSON, which previously failed validation and left zero clips).
 
 ## 4. Repository architecture
 
