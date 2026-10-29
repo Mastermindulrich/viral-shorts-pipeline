@@ -25,12 +25,35 @@ Never infer the date of an event from the upload date, or claim something happen
 Transcript-only analysis cannot verify goals, stunts, clothing, facial expressions or a visual demonstration.'''
 
 
-def ask(prompt, model='qwen2.5:7b'):
+OLLAMA='http://127.0.0.1:11434'
+
+
+def check_model(model):
     if not re.fullmatch(r'[A-Za-z0-9_.:/-]{1,100}',model) or 'cloud' in model.lower() or '/' in model:
         raise ValueError('Choose a locally installed Ollama model tag, not a cloud model')
+
+
+def installed_models(timeout=2):
+    with urllib.request.urlopen(OLLAMA+'/api/tags',timeout=timeout) as response:
+        return [x.get('name','') for x in json.loads(response.read(2_000_000)).get('models',[])]
+
+
+def require_model(model='qwen2.5:7b', timeout=2):
+    """Fail in seconds, before a download or transcription that takes minutes."""
+    check_model(model)
+    try: names=installed_models(timeout)
+    except Exception as exc:
+        raise RuntimeError('Local AI editor unavailable: Ollama is not running at '+OLLAMA+
+                           '. Open the Ollama app (or run: ollama serve), then retry.') from exc
+    if model not in names and model+':latest' not in names:
+        raise RuntimeError(f'Local AI editor model {model} is not installed. In Terminal run: ollama pull {model}')
+
+
+def ask(prompt, model='qwen2.5:7b'):
+    check_model(model)
     body=dict(model=model,stream=False,format='json',options={'temperature':0.2,'num_ctx':16384},
               messages=[{'role':'system','content':SYSTEM},{'role':'user','content':prompt}])
-    req=urllib.request.Request('http://127.0.0.1:11434/api/chat',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
+    req=urllib.request.Request(OLLAMA+'/api/chat',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
     try:
         with urllib.request.urlopen(req,timeout=600) as response:
             result=json.loads(response.read(2_000_000))
