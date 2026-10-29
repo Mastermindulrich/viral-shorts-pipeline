@@ -91,8 +91,8 @@ section 0 rule: pull the latest `main` and edit in place; never paste an older f
 another assistant's work. Added `AGENTS.md` and `CLAUDE.md` pointers to both continuity files.
 
 Duration rule: the code and docs now consistently use 15–180 seconds, per the user's change
-recorded above. Earlier instructions said 60 seconds maximum. The user was asked to confirm
-which one stands, and this rule should not change again without that confirmation.
+recorded above. Earlier instructions said 60 seconds maximum. On 2026-10-29 the user
+confirmed: keep 15–180 seconds. Do not bring back the 60-second cap unless the user asks for it.
 
 Tests: `python -m unittest discover -s tests -v` → 70 passed (with dependencies); bare Python →
 68 passed, 2 skipped (Streamlit/libass not installed). `git diff --check` clean.
