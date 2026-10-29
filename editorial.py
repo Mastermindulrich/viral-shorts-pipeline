@@ -25,35 +25,12 @@ Never infer the date of an event from the upload date, or claim something happen
 Transcript-only analysis cannot verify goals, stunts, clothing, facial expressions or a visual demonstration.'''
 
 
-OLLAMA='http://127.0.0.1:11434'
-
-
-def check_model(model):
+def ask(prompt, model='qwen2.5:7b'):
     if not re.fullmatch(r'[A-Za-z0-9_.:/-]{1,100}',model) or 'cloud' in model.lower() or '/' in model:
         raise ValueError('Choose a locally installed Ollama model tag, not a cloud model')
-
-
-def installed_models(timeout=2):
-    with urllib.request.urlopen(OLLAMA+'/api/tags',timeout=timeout) as response:
-        return [x.get('name','') for x in json.loads(response.read(2_000_000)).get('models',[])]
-
-
-def require_model(model='qwen2.5:7b', timeout=2):
-    """Fail in seconds, before a download or transcription that takes minutes."""
-    check_model(model)
-    try: names=installed_models(timeout)
-    except Exception as exc:
-        raise RuntimeError('Local AI editor unavailable: Ollama is not running at '+OLLAMA+
-                           '. Open the Ollama app (or run: ollama serve), then retry.') from exc
-    if model not in names and model+':latest' not in names:
-        raise RuntimeError(f'Local AI editor model {model} is not installed. In Terminal run: ollama pull {model}')
-
-
-def ask(prompt, model='qwen2.5:7b'):
-    check_model(model)
     body=dict(model=model,stream=False,format='json',options={'temperature':0.2,'num_ctx':16384},
               messages=[{'role':'system','content':SYSTEM},{'role':'user','content':prompt}])
-    req=urllib.request.Request(OLLAMA+'/api/chat',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
+    req=urllib.request.Request('http://127.0.0.1:11434/api/chat',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
     try:
         with urllib.request.urlopen(req,timeout=600) as response:
             result=json.loads(response.read(2_000_000))
@@ -78,12 +55,26 @@ def chunks(segments, size=10000, overlap=8):
 def norm(s):
     return ' '.join(str(s).lower().split())
 
+def expand_boundaries(a,b,segments,lo=0,hi=None):
+    """Repair a too-short model boundary with adjacent transcript segments only."""
+    hi=len(segments)-1 if hi is None else hi-1
+    while b>=a and float(segments[b]['end'])-float(segments[a]['start'])<15 and b<hi:
+        b+=1
+    while b>=a and float(segments[b]['end'])-float(segments[a]['start'])<15 and a>lo:
+        a-=1
+    if float(segments[b]['end'])-float(segments[a]['start'])>60:
+        return None
+    return a,b
+
 
 def validate_scene(item, segments, lo=0, hi=None):
     hi=len(segments) if hi is None else hi
     a,b=item.get('first_segment'),item.get('last_segment')
     if type(a) is not int or type(b) is not int or not lo<=a<=b<hi:
         raise ValueError('Invalid scene boundaries')
+    expanded=expand_boundaries(a,b,segments,lo,hi)
+    if expanded is None: raise ValueError('Scene cannot reach 15 seconds without exceeding 60 seconds')
+    a,b=expanded
     start,end=float(segments[a]['start']),float(segments[b]['end'])
     if not 15<=end-start<=60:
         raise ValueError('Scene must last 15–60 seconds')

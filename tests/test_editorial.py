@@ -20,6 +20,16 @@ class EditorialTests(unittest.TestCase):
         result=e.validate_scene(self.scene,self.segments)
         self.assertEqual(result['end'],40)
         self.assertTrue(result['visual_review_required'])
+
+    def test_short_model_boundary_expands_to_adjacent_complete_scene(self):
+        segments=[dict(start=0,end=5,text='Kai asks about the business.'),
+                   dict(start=5,end=10,text='LeBron says the business earns 100 million in revenue.'),
+                   dict(start=10,end=20,text='They explain revenue is different from personal cash.')]
+        short=dict(self.scene,first_segment=1,last_segment=1,
+                   evidence_quote='LeBron says the business earns 100 million in revenue.')
+        result=e.validate_scene(short,segments)
+        self.assertEqual((result['first_segment'],result['last_segment']),(1,2))
+        self.assertEqual(result['end']-result['start'],15)
     def test_rejects_outside_evidence_numbers_and_bad_boundaries(self):
         for changes in [dict(evidence_quote='He keeps a billion dollars in a bank account'),
                         dict(title='LeBron Has 999 Million In Cash'),dict(last_segment=5),dict(first_segment=True),

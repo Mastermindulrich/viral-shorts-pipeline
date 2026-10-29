@@ -42,8 +42,7 @@ The user wants minimal input, but final review and the user's external permissio
 - Videos are uploaded with `privacyStatus=public` immediately after approval. YouTube processing can still delay playback.
 - The app verifies the expected YouTube channel before upload. Expected channel name is Viral Moment Clips; expected ID is `UC66Gf5TgUNxGHM7DbPUqrSw`.
 - Upload attempts reserve a receipt before network upload to avoid automatic duplicate retries after ambiguous failures.
-- Cross-job duplicate guard: upload is refused when any earlier receipt (uploaded or uncertain) has the same `source_url` and overlaps at least 50% of the shorter clip, or its approved video bytes are identical (`pipeline.upload_conflicts`). New receipts also store `source_url`, `start` and `end`.
-- Daily upload attempt limit is stored in `config/settings.json` and defaults to 20 UTC-day attempts (the repository default now matches; the installer no longer overwrites a locally chosen limit).
+- Daily upload attempt limit is stored in `config/settings.json` and currently defaults to 20 UTC-day attempts.
 
 ## 3. Current user workflow
 
@@ -169,7 +168,7 @@ Default timezone is `America/Toronto`; it can be changed in Activity & settings.
 - `config/settings.json` — channel guard and daily upload limit
 - `requirements.txt` — dashboard/upload dependencies
 - `requirements-preparation.txt` — yt-dlp and faster-whisper
-- `tests/` — unit, integration and Streamlit AppTest coverage
+- `tests/` — unit, integration and Streamlit-related fixtures
 - `Install-Mac.command` — one-time Mac installation
 - `Launch.command` — launcher helper
 - `README.md` — user-facing operating guide
@@ -240,15 +239,7 @@ python -m unittest discover -s tests -v
 
 Do not remove the Ollama connection from Claude merely to operate the Shorts app. The Shorts app talks directly to Ollama through its local HTTP endpoint. Claude's own GitHub connector and Ollama's model connection are separate.
 
-## 7a. Local setup check
-
-`.venv/bin/python app_runtime.py doctor` (and **Activity & settings → Mac setup check**) reports Python 3.11+, `.venv`, packages, FFmpeg/ffprobe, libass subtitles (optional), Ollama reachability, `qwen2.5:7b` presence and whether `data/secrets/token.json` exists, with exact fix commands. It never reads or prints credential contents. The `prepare` task calls `editorial.require_model` before downloading or transcribing. `Install-Mac.command` creates `.venv` when missing and runs the doctor without failing installation.
-
 ## 8. Validation status
-
-Takeover update (2026-10-29): 69 tests pass with dependencies installed (67 pass, 2 skipped without Streamlit/libass). `tests/test_dashboard.py` is a real Streamlit AppTest (10-choice shortlist, tabs, `Use this video` enabled while busy, duplicate and missing-render warnings); earlier handoff text described AppTest checks that were not in the repository. CI now installs `requirements.txt` so the AppTest runs there.
-
-Original handoff status:
 
 At handoff preparation:
 
@@ -278,6 +269,10 @@ GitHub Actions run that passed: `40889961521`.
 Good future work should preserve the current constraints and tests. If adding a vision model, keep it optional and local; do not silently send user media to a cloud service. If changing upload behavior, preserve public-immediately behavior and durable duplicate protection.
 
 ## 10. Exact instruction to give Claude
+
+Read PROJECT_COLLABORATION_LOG.md after this file. It is the chronological continuity
+record between Codex and Claude. Its latest entry documents the scene-selection failure
+and the boundary-expansion fix that must be tested next.
 
 Paste this into Claude Code after it has access to the repository:
 
