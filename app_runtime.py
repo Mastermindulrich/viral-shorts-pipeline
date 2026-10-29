@@ -79,11 +79,14 @@ def execute(request):
                 prep.import_video(data['url'],data['clearance'])
             elif action=='prepare':
                 import preparation as prep
+                import editorial
+                import studio
+                stage('Checking the local AI editor')
+                editorial.require_model(studio.preferences()['editor_model'])
                 if data.get('url'):
                     stage('Downloading source'); source=prep.import_video(data['url'],data['clearance']); path=source['input']; url=source['source_url']
                 else: path=data['path']; url=data['source_url']
                 stage('Transcribing and selecting complete scenes — this can take several minutes')
-                import studio
                 defaults=studio.preferences()
                 prep.prepare(path,url,data.get('count',defaults['count']),
                              data.get('transcription_model',defaults['transcription_model']),data.get('captions',defaults['captions']),
@@ -106,10 +109,15 @@ def execute(request):
                 p.write(p.DATA/'jobs'/(job['id']+'.json'),job)
                 p.render(job)
             elif action=='publish':
+                # Each clip has its own durable receipt, so one blocked clip need not stop the batch.
+                failures=[]
                 for ident in data['ids']:
                     stage('Publishing '+ident)
-                    job=p.read(p.DATA/'exports'/ident/'job.json')
-                    p.upload(job)
+                    try: p.upload(p.read(p.DATA/'exports'/ident/'job.json'))
+                    except Exception as exc:
+                        print(f'Publish failed for {ident}: {exc}',flush=True)
+                        failures.append(f'{ident}: {exc}')
+                if failures: raise RuntimeError(f'{len(failures)} of {len(data["ids"])} clips not published. '+' | '.join(failures))
             else: raise ValueError('Unknown task')
         state=p.read(STATE); state.update(status='complete',stage='Finished'); p.write(STATE,state)
     except Exception as exc:
@@ -122,6 +130,49 @@ def diagnostics():
     text=re.sub(r'ya29\.[\w.-]+','[REDACTED]',text)
     version=subprocess.run(['git','rev-parse','--short','HEAD'],cwd=p.ROOT,capture_output=True,text=True).stdout.strip()
     return json.dumps(dict(version=version,python=sys.version.split()[0],activity=active()),indent=2)+'\n'+text
+
+PACKAGES=[('streamlit','requirements.txt'),('googleapiclient','requirements.txt'),('google_auth_oauthlib','requirements.txt'),
+          ('yt_dlp','requirements-preparation.txt'),('faster_whisper','requirements-preparation.txt')]
+
+def readiness(editor_model=None):
+    """Local setup checks. Reports only whether credentials exist, never their contents."""
+    import importlib.util
+    import shutil
+    import editorial
+    import studio
+    model=editor_model or studio.preferences()['editor_model']
+    install='.venv/bin/python -m pip install -r requirements.txt -r requirements-preparation.txt'
+    checks=[]
+    def check(name,ok,detail,fix='',required=True):
+        checks.append(dict(name=name,ok=bool(ok),detail=detail,fix='' if ok else fix,required=required))
+    version='.'.join(map(str,sys.version_info[:3]))
+    check('Python 3.11+',sys.version_info>=(3,11),'Python '+version,'brew install python@3.12')
+    check('Project virtual environment',(p.ROOT/'.venv'/'bin'/'python').exists(),'.venv',
+          'python3 -m venv .venv && '+install)
+    missing=sorted({req for module,req in PACKAGES if importlib.util.find_spec(module) is None})
+    check('Python packages',not missing,'Missing from '+', '.join(missing) if missing else 'Installed',install)
+    for tool in ('ffmpeg','ffprobe'):
+        path=shutil.which(p.media_tool(tool))
+        check(tool.upper() if tool=='ffmpeg' else 'ffprobe',path,path or 'Not found','brew install ffmpeg-full')
+    captions=p.caption_capability()
+    check('Burned-in English subtitles',captions['supported'],captions['reason'],'brew install ffmpeg-full',required=False)
+    try:
+        names=editorial.installed_models()
+        check('Ollama running',True,editorial.OLLAMA)
+        check('Local AI editor model',model in names or model+':latest' in names,model,'ollama pull '+model)
+    except Exception:
+        check('Ollama running',False,'Not reachable at '+editorial.OLLAMA,'brew install ollama && open -a Ollama  (or: ollama serve)')
+        check('Local AI editor model',False,model+' (cannot check while Ollama is stopped)','ollama pull '+model)
+    check('YouTube authorization',(p.DATA/'secrets'/'token.json').exists(),'Saved locally' if (p.DATA/'secrets'/'token.json').exists() else 'Not set up',
+          '.venv/bin/python pipeline.py auth   (sign in through the browser; never paste tokens anywhere)')
+    return checks
+
+def readiness_report(checks):
+    lines=[]
+    for x in checks:
+        mark='OK' if x['ok'] else ('MISSING' if x['required'] else 'OPTIONAL')
+        lines.append(f"[{mark:<8}] {x['name']}: {x['detail']}"+(f"\n           Fix: {x['fix']}" if x['fix'] else ''))
+    return '\n'.join(lines)
 
 def install():
     import plistlib
@@ -196,3 +247,6 @@ def update():
 if __name__=='__main__':
     if sys.argv[1]=='install': install()
     elif sys.argv[1]=='task': execute(sys.argv[2])
+    elif sys.argv[1]=='doctor':
+        checks=readiness(); print(readiness_report(checks))
+        sys.exit(any(x['required'] and not x['ok'] for x in checks))
