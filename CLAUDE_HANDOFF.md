@@ -310,3 +310,5 @@ Suggested next development steps:
 3. Optional local vision check for visual clips (must stay local and optional).
 
 Final review recovery: when the batch context audit produces zero usable scenes, v5 retries each audited candidate once using an explicit accepted/reason/changes verdict. All evidence, language, scores and boundary checks still apply. Failure details are saved locally in data/editorial/last-failed-review.json. Activity and diagnostics is collapsed at the bottom of the dashboard.
+
+User-facing error guidance (2026-11-01): troubleshooting.explain maps known failures to a plain-English explanation, numbered recovery steps and optional exact command using the installed project path. All caught dashboard exceptions and background failures use show_problem; unknown errors get diagnostic-sharing steps without raw exception output. Batch failures retain separate remedies per clip. Technical tracebacks remain in collapsed diagnostics. Existing transient retries, context-review recovery and resumable upload chunk retries remain; sign-in renewal requires the owner, and uncertain uploads are never blindly retried.

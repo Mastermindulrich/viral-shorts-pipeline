@@ -57,7 +57,8 @@ def retry(function,label,attempts=3,delays=(5,30),sleep=time.sleep):
         except Exception as exc:
             if number>=attempts or not transient(exc): raise
             wait=delays[min(number-1,len(delays)-1)]
-            stage(f'{label} hit a temporary problem ({str(exc)[:120]}). Retrying automatically in {wait}s (attempt {number+1} of {attempts})')
+            print(f'{label} temporary failure: {exc}',flush=True)
+            stage(f'{label} could not connect. Retrying automatically in {wait}s (attempt {number+1} of {attempts}). No action needed yet.')
             sleep(wait)
 
 def stage(message, progress=None, eta_seconds=None):
@@ -141,13 +142,18 @@ def execute(request):
                 p.render(job)
             elif action=='publish':
                 # Each clip has its own durable receipt, so one blocked clip need not stop the batch.
-                failures=[]
+                failures=[]; failure_details=[]
                 for ident in data['ids']:
                     stage('Publishing '+ident)
-                    try: p.upload(p.read(p.DATA/'exports'/ident/'job.json'))
+                    job={}
+                    try:
+                        job=p.read(p.DATA/'exports'/ident/'job.json')
+                        p.upload(job)
                     except Exception as exc:
                         print(f'Publish failed for {ident}: {exc}',flush=True)
                         failures.append(f'{ident}: {exc}')
+                        failure_details.append(dict(title=job.get('title',ident),error=str(exc)))
+                        state=p.read(STATE); state['failures']=failure_details; p.write(STATE,state)
                 if failures: raise RuntimeError(f'{len(failures)} of {len(data["ids"])} clips not published. '+' | '.join(failures))
             else: raise ValueError('Unknown task')
         state=p.read(STATE); state.update(status='complete',stage='Finished'); p.write(STATE,state)

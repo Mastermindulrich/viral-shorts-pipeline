@@ -10,6 +10,7 @@ import preparation as prep
 import content_policy as policy
 import scouting
 import studio
+import troubleshooting
 os.chdir(p.ROOT)
 st.set_page_config(page_title='Viral Moment Clips',page_icon='🎬',layout='wide')
 st.markdown("""<style>
@@ -34,9 +35,15 @@ for folder in ['inbox','jobs','exports']: (p.DATA/folder).mkdir(parents=True,exi
 def setup_checks():
     return runtime.readiness()
 
+def show_problem(error, action=''):
+    help=troubleshooting.explain(error,action)
+    st.error(help['title'])
+    st.markdown('**What to do:**\n\n'+'\n'.join(f"{i}. {step}" for i,step in enumerate(help['steps'],1)))
+    if help.get('command'): st.code(help['command'],language='bash')
+
 def launch(action,data=None):
     try: runtime.start(action,data); st.rerun()
-    except Exception as exc: st.error(str(exc))
+    except Exception as exc: show_problem(exc)
 
 state=runtime.active(); busy=state.get('status')=='running'
 settings=p.read(p.ROOT/'config/settings.json')
@@ -48,7 +55,7 @@ with st.sidebar:
     st.caption(f"Upload limit: {settings.get('max_uploads_per_day',20)} attempts / UTC day")
     if st.button('Verify YouTube connection',disabled=busy):
         try: st.success(p.channel()['name'])
-        except Exception as exc: st.error(str(exc))
+        except Exception as exc: show_problem(exc)
     st.caption('Your Mac must stay awake during processing and uploads.')
 
 @st.fragment(run_every='3s')
@@ -70,8 +77,15 @@ def activity():
                     st.caption('Estimated time remaining: '+(f'{mins}m ' if mins else '')+f'{secs}s · Temporary network failures retry automatically.')
             else: st.info('Working: '+message)
             st.caption('You may leave this page open or refresh it; progress is saved locally.')
-        elif status=='failed': st.error(current.get('error','Task failed'))
-        elif status=='interrupted': st.warning(current.get('error'))
+        elif status=='failed':
+            failures=current.get('failures',[])
+            if failures:
+                st.error(f"{len(failures)} clip(s) could not be published. Successful uploads are kept.")
+                for failure in failures:
+                    st.write('**'+failure.get('title','Clip')+'**')
+                    show_problem(failure['error'],'publish')
+            else: show_problem(current.get('error','Task failed'),current.get('action',''))
+        elif status=='interrupted': show_problem(current.get('error','Task interrupted'))
         else: st.success(message+'. Refresh the workspace below to see new clips.')
 activity()
 awaiting=len([1 for x in (p.DATA/'exports').glob('*/job.json') if not (x.parent/'upload.json').exists()])
@@ -110,7 +124,7 @@ with find:
     if (p.DATA/'discovery-rotation.json').exists():
         scan=p.read(p.DATA/'discovery-rotation.json')
         st.caption('Last searched: '+', '.join(scan.get('last_topics',[]))+'. Next scans rotate through your selected topics.')
-        for warning in scan.get('errors',[]): st.warning(warning)
+        for warning in scan.get('errors',[]): show_problem(warning,'scout')
     ranked=p.DATA/'ranked-candidates.json'
     if ranked.exists():
         saved=p.read(ranked)
@@ -159,7 +173,7 @@ with make:
         st.caption('The number of clips is chosen automatically from the video length and quality. For dance or other visual action, import only, then choose Already imported video.')
     else:
         try: catalog=prep.source_catalog() if not busy else []
-        except Exception as exc: st.error(str(exc)); catalog=[]
+        except Exception as exc: show_problem(exc); catalog=[]
         if catalog:
             source=st.selectbox('Numbered source videos',catalog,format_func=lambda x:x['label'])
             st.link_button('Watch original',source['url']) if source['url'].startswith('https://') else None
@@ -237,7 +251,7 @@ with review:
                             job.pop('publish_at',None)
                             p.write(path,job); p.write(p.DATA/'jobs'/(job['id']+'.json'),job); p.approve(job)
                         launch('publish',dict(ids=[job['id']]))
-                    except Exception as exc: st.error(str(exc))
+                    except Exception as exc: show_problem(exc)
                 if drop.button('Delete',key='del-'+job['id'],disabled=busy,use_container_width=True):
                     p.discard_clip(job['id']); st.rerun()
                 if not blocked: publishable.append((path,job,title,description,audience))
@@ -251,7 +265,7 @@ with review:
                         job.pop('publish_at',None)
                         p.write(path,job); p.write(p.DATA/'jobs'/(job['id']+'.json'),job); p.approve(job); ids.append(job['id'])
                 launch('publish',dict(ids=ids))
-            except Exception as exc: st.error(str(exc))
+            except Exception as exc: show_problem(exc)
 with published:
     st.subheader('Published videos by date')
     today=dt.datetime.now(ZoneInfo(defaults['timezone'])).date()
@@ -271,7 +285,9 @@ with published:
         record=row['record']; job=row['job']
         st.write('**'+job['title']+'**'); st.caption(row['date_label']+' · Visibility: '+record.get('privacy','not recorded'))
         if record.get('video_id'): st.link_button('Watch on YouTube','https://www.youtube.com/watch?v='+record['video_id'])
-        else: st.warning('Upload outcome uncertain. Check YouTube Studio before retrying.'); st.json(record)
+        else:
+            show_problem('uncertain upload')
+            with st.expander('Technical upload record'): st.json(record)
     if not shown: st.info('No uploads match this date or search. Choose All dates to see the complete history.')
 with tools:
     st.subheader('Mac setup check')
