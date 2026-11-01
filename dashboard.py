@@ -281,11 +281,6 @@ with tools:
     else: st.success('Everything required is installed and running.')
     st.code(runtime.readiness_report(checks),language=None)
     if st.button('Re-run setup check'): setup_checks.clear(); st.rerun()
-    st.subheader('Activity and diagnostics')
-    report=runtime.diagnostics()
-    st.code(report,language=None)
-    st.download_button('Download diagnostics to share',report,'viral-moment-clips-diagnostics.txt')
-    st.caption('Use the copy control on the log box to copy diagnostics. Credentials are filtered; check before sharing.')
     st.subheader('App updates')
     st.caption('Updates preserve your videos, credentials and local configuration. The updater requires the installed Mac launcher. A failed code/dependency check restores the previous code; dependency versions may still have changed.')
     if st.button('Update app',disabled=busy): launch('update')
@@ -303,3 +298,9 @@ with tools:
     with st.expander('Manual tools and troubleshooting'):
         st.caption('The previous manual dashboard remains available with: python -m streamlit run dashboard_legacy.py')
         st.caption('If the app cannot start, logs are at data/logs/activity.log in the project folder.')
+
+with st.expander('Activity and diagnostics', expanded=False):
+    report=runtime.diagnostics()
+    st.code(report,language=None)
+    st.download_button('Download diagnostics to share',report,'viral-moment-clips-diagnostics.txt')
+    st.caption('Use the copy control on the log box to copy diagnostics. Credentials are filtered; check before sharing.')

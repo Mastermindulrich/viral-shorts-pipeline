@@ -308,3 +308,5 @@ Suggested next development steps:
 1. Run a real end-to-end batch with the 180-second rule and record clip-quality issues in the log.
 2. Optional local-timezone view of the daily upload cap (currently UTC; see section 9).
 3. Optional local vision check for visual clips (must stay local and optional).
+
+Final review recovery: when the batch context audit produces zero usable scenes, v5 retries each audited candidate once using an explicit accepted/reason/changes verdict. All evidence, language, scores and boundary checks still apply. Failure details are saved locally in data/editorial/last-failed-review.json. Activity and diagnostics is collapsed at the bottom of the dashboard.

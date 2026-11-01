@@ -44,6 +44,33 @@ class EditorialTests(unittest.TestCase):
             self.assertIn('Revenue versus cash',ask.call_args_list[1].args[0])
             self.assertIn('Revenue is different',ask.call_args.args[0].replace('revenue is different','Revenue is different'))
             self.assertTrue(result['scenes'][0]['context_audited'])
+    def test_empty_final_review_recovers_with_individual_verdict(self):
+        with patch.object(e,'ask',side_effect=[{'scenes':[self.scene]}, {'ranked_ids':[0]},
+                {'scenes':[]}, {'accepted':True,'reason':'Question, answer and qualification are complete','changes':{}}]):
+            result=e.select_scenes(self.segments)
+        self.assertTrue(result['scenes'][0]['context_audited'])
+        self.assertEqual(result['scenes'][0]['end'],40)
+
+    def test_individual_review_cannot_bypass_evidence_checks(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder, patch.object(e.p,'DATA',Path(folder)), patch.object(e,'ask',side_effect=[
+                {'scenes':[self.scene]}, {'ranked_ids':[0]}, {'scenes':[]},
+                {'accepted':True,'changes':{'evidence_quote':'Invented unsupported evidence from nowhere'}}]):
+            with self.assertRaisesRegex(ValueError,'automatic individual retries'):
+                e.select_scenes(self.segments)
+            report=e.p.read(Path(folder)/'editorial'/'last-failed-review.json')
+            self.assertTrue(any('exact excerpt' in x for x in report['reasons']))
+
+    def test_explicit_individual_rejection_stays_rejected(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder, patch.object(e.p,'DATA',Path(folder)), patch.object(e,'ask',side_effect=[
+                {'scenes':[self.scene]}, {'ranked_ids':[0]}, {'scenes':[]},
+                {'accepted':False,'reason':'Missing necessary context'}]):
+            with self.assertRaisesRegex(ValueError,'Missing necessary context'):
+                e.select_scenes(self.segments)
+
     def test_no_silent_fallback(self):
         with patch.object(e,'ask',return_value={'summary':'Nothing complete','scenes':[]}):
             with self.assertRaisesRegex(ValueError,'No valid complete scenes'): e.select_scenes(self.segments)

@@ -128,14 +128,14 @@ class EditorialAuditTests(unittest.TestCase):
 
     def test_final_auditor_can_reject_a_catchy_but_contextless_cut(self):
         with patch.object(e,'ask',side_effect=[dict(summary='Cash vs revenue',scenes=[self.scene]),
-            dict(ranked_ids=[0]),dict(scenes=[])]):
+            dict(ranked_ids=[0]),dict(scenes=[]),dict(accepted=False,reason='Missing context')]):
             with self.assertRaisesRegex(ValueError,'final context review'): e.select_scenes(self.segments)
 
     def test_final_auditor_cannot_hallucinate_id_or_evidence(self):
         for scene in [dict(self.scene,candidate_id=999),
                       dict(self.scene,candidate_id=0,evidence_quote='An invented statement not in the source')]:
             with self.subTest(scene=scene),patch.object(e,'ask',side_effect=[dict(summary='Cash',scenes=[self.scene]),
-                dict(ranked_ids=[0]),dict(scenes=[scene])]):
+                dict(ranked_ids=[0]),dict(scenes=[scene]),dict(accepted=False,reason='Unsupported proposal')]):
                 with self.assertRaises(ValueError): e.select_scenes(self.segments)
 
     def test_title_numbers_and_alternatives_must_be_in_scene(self):

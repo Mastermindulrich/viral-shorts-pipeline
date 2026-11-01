@@ -144,3 +144,9 @@ rendered clip. Existing 15–180 second output rules and public publishing behav
 Tests: `python -m unittest discover -s tests -v` → 75 passed, 2 skipped; `py_compile` and
 `git diff --check` passed.
 
+
+## 2026-11-01 — Codex — recover empty final context audit
+
+Owner reports recurring final-context-review rejection. No Mac logs or live Ollama output available here; confirmed the batch audit had no recovery when it returned no usable scenes. Added bounded individual context review with a smaller verdict schema and retained every validation check; no unreviewed-proposal fallback. Exhausted retries report specific rejection reasons and save a local failure report without secrets. Added tests for recovery, unsupported evidence, and explicit rejection. Moved diagnostics to a collapsed expander below all tabs. Baseline: 75 tests OK, 2 optional skips. Post-change results recorded below.
+
+Post-change validation: 78 tests ran, OK (2 optional skips); git diff --check clean. Existing rejection tests retain their assertions and now supply the additional individual-review rejection response.
