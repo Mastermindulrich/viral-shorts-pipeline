@@ -101,7 +101,7 @@ The shortlist can contain fewer than 10 items if fewer meet the filters. Do not 
 
 The user may start from a YouTube link or an already imported video.
 
-For an online source, the user provides a permission/clearance reference. The app downloads a single YouTube video through yt-dlp, rejects live videos and sources over three hours, checks content policy, and stores an import receipt under `data/imports/`.
+For an online source, the user provides a permission/clearance reference. The app downloads a single YouTube video through yt-dlp, rejects live videos and sources over 20 minutes to keep local processing light, checks content policy, and stores an import receipt under `data/imports/`.
 
 Automatic preparation:
 
@@ -191,7 +191,7 @@ Runtime data is under `data/` and should remain ignored by Git: OAuth secrets, t
 
 ## 5. Background task behavior
 
-The dashboard starts a separate local worker process for `scout`, `rescreen`, `import`, `prepare`, `visual`, `publish`, `sync_history` and `update`. `data/activity.json` records status and stage. `data/logs/activity.log` records output. The UI fragment refreshes every three seconds and releases/re-enables controls when work completes.
+The dashboard starts a separate local worker process for `scout`, `rescreen`, `import`, `prepare`, `visual`, `publish`, `sync_history` and `update`. `data/activity.json` records status, stage, percentage and estimated remaining seconds. `data/logs/activity.log` records output. The UI fragment refreshes every three seconds and releases/re-enables controls when work completes.
 
 The app cannot process while the Mac is asleep. Ollama must be running for semantic selection. No unattended daily ingestion is currently enabled; scouting is on demand.
 

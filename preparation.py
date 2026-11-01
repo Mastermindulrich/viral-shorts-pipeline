@@ -6,6 +6,8 @@ from urllib.parse import urlparse, parse_qs
 import pipeline as p
 import content_policy as policy
 
+MAX_SOURCE_SECONDS = 20 * 60
+
 
 def video_url(url):
     parsed = urlparse(url.strip())
@@ -48,8 +50,8 @@ def import_video(url, clearance=''):
                 max_filesize=2_000_000_000)
     with YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url,download=False)
-        if info.get('is_live') or not info.get('duration') or info['duration']>3*3600:
-            raise ValueError('Use a finished video shorter than three hours')
+        if info.get('is_live') or not info.get('duration') or info['duration']>MAX_SOURCE_SECONDS:
+            raise ValueError(f'Use a finished video no longer than {MAX_SOURCE_SECONDS//60} minutes so the local workflow stays light')
         decision=policy.screen(dict(title=info.get('title',''),creator=info.get('uploader',''),
                                     description=info.get('description',''),audio_language=info.get('language',''),
                                     categoryId='10' if 'Music' in (info.get('categories') or []) else ''))
@@ -92,7 +94,7 @@ def windows(segments, limit=3):
     return sorted(selected,key=lambda x:x['start'])
 
 
-def prepare(source, source_url, count='auto', model='base', captions=False, editor='basic', editor_model='qwen2.5:7b'):
+def prepare(source, source_url, count='auto', model='base', captions=False, editor='basic', editor_model='qwen2.5:7b', progress=None):
     source=Path(source).resolve()
     receipt=source.parent/'source.json'
     record={}
@@ -110,6 +112,7 @@ def prepare(source, source_url, count='auto', model='base', captions=False, edit
             words=[dict(start=w.start,end=w.end,word=w.word) for w in (s.words or [])]) for s in segments])
         p.write(transcript.with_suffix('.language.json'),dict(language=language_info.language,
                 probability=language_info.language_probability))
+    if progress: progress(58, 'Transcript ready — selecting the strongest complete scenes')
     language_path=transcript.with_suffix('.language.json')
     if language_path.exists():
         language=p.read(language_path)
@@ -130,6 +133,7 @@ def prepare(source, source_url, count='auto', model='base', captions=False, edit
         candidates=report['scenes']
     else:
         candidates=windows(p.read(transcript),count)
+    if progress: progress(72, f'{len(candidates)} coherent moments selected — rendering previews')
     if not candidates:
         raise ValueError('Not enough continuous speech for suggestions. Use the manual clip form for silent/action videos.')
     jobs=[]
@@ -157,6 +161,7 @@ def prepare(source, source_url, count='auto', model='base', captions=False, edit
         p.validate(job)
         p.write(dest,job)
         p.render(job)
+        if progress: progress(min(96, 72 + int(24*len(jobs)/max(1,len(candidates)))), f'Rendered clip {len(jobs)} of {len(candidates)}')
         jobs.append(job)
     return jobs
 

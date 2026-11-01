@@ -60,7 +60,16 @@ def activity():
         st.rerun()
     if current:
         status=current.get('status'); message=current.get('stage',current.get('action',''))
-        if status=='running': st.info('Working: '+message+' · You may leave or refresh this page.')
+        if status=='running':
+            progress=current.get('progress')
+            if progress is not None:
+                st.progress(progress/100, text=f'{progress}% · {message}')
+                eta=current.get('eta_seconds')
+                if eta is not None:
+                    mins,secs=divmod(int(eta),60)
+                    st.caption('Estimated time remaining: '+(f'{mins}m ' if mins else '')+f'{secs}s · Temporary network failures retry automatically.')
+            else: st.info('Working: '+message)
+            st.caption('You may leave this page open or refresh it; progress is saved locally.')
         elif status=='failed': st.error(current.get('error','Task failed'))
         elif status=='interrupted': st.warning(current.get('error'))
         else: st.success(message+'. Refresh the workspace below to see new clips.')
@@ -181,7 +190,7 @@ with make:
     if editor_check:
         st.warning('The local AI editor is not ready, so clip making will stop before downloading. '+
                    ' · '.join(x['detail']+' — run: '+x['fix'] for x in editor_check)+'. Manual visual clips still work.')
-    st.caption('Download, transcription, scene selection, titles and rendering run in one background task. Nothing is uploaded until you approve it in Review & publish.')
+    st.caption('Download, transcription, scene selection, titles and rendering run in one background task. Temporary network failures retry automatically; nothing is uploaded until you approve it in Review & publish.')
 
 jobs=[]
 for path in sorted((p.DATA/'exports').glob('*/job.json'),key=lambda x:x.stat().st_mtime):

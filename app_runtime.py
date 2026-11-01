@@ -60,10 +60,19 @@ def retry(function,label,attempts=3,delays=(5,30),sleep=time.sleep):
             stage(f'{label} hit a temporary problem ({str(exc)[:120]}). Retrying automatically in {wait}s (attempt {number+1} of {attempts})')
             sleep(wait)
 
-def stage(message):
+def stage(message, progress=None, eta_seconds=None):
     print(message,flush=True)
     state=p.read(STATE) if STATE.exists() else {}
     state['stage']=message
+    if progress is not None:
+        state['progress']=max(0,min(100,int(progress)))
+        state['progress_updated']=dt.datetime.now().isoformat()
+        if eta_seconds is not None:
+            state['eta_seconds']=max(0,int(eta_seconds))
+        elif state['progress'] > 0:
+            started=dt.datetime.fromisoformat(state.get('started',dt.datetime.now().isoformat()))
+            elapsed=(dt.datetime.now()-started).total_seconds()
+            state['eta_seconds']=max(0,int(elapsed*(100-state['progress'])/state['progress']))
     p.write(STATE,state)
 
 def execute(request):
@@ -93,29 +102,31 @@ def execute(request):
                 print(f'Updated {count} publication timestamps.',flush=True)
             elif action=='import':
                 import preparation as prep
-                stage('Importing source for visual selection')
+                stage('Importing source for visual selection',5)
                 retry(lambda:prep.import_video(data['url'],data.get('clearance','')),'Download')
+                stage('Source imported — ready for a visual cut',100,0)
             elif action=='prepare':
                 import preparation as prep
                 import editorial
                 import studio
-                stage('Checking the local AI editor')
+                stage('Checking the local AI editor',3)
                 editorial.require_model(studio.preferences()['editor_model'])
                 if data.get('url'):
-                    stage('Downloading source'); source=retry(lambda:prep.import_video(data['url'],data.get('clearance','')),'Download'); path=source['input']; url=source['source_url']
+                    stage('Downloading a short source (max 20 minutes)',10); source=retry(lambda:prep.import_video(data['url'],data.get('clearance','')),'Download'); path=source['input']; url=source['source_url']
                 else: path=data['path']; url=data['source_url']
-                stage('Transcribing and selecting complete scenes — this can take several minutes')
+                stage('Transcribing the short source',35)
                 defaults=studio.preferences()
                 retry(lambda:prep.prepare(path,url,data.get('count',defaults['count']),
                              data.get('transcription_model',defaults['transcription_model']),data.get('captions',defaults['captions']),
-                             'semantic',defaults['editor_model']),'Scene selection')
+                             'semantic',defaults['editor_model'],progress=lambda n,m: stage(m,n)),'Scene selection')
+                stage('Clips rendered — ready for Review & publish',100,0)
             elif action=='auto':
                 auto_batch()
             elif action=='visual':
                 import uuid
                 import preparation as prep
                 import studio
-                stage('Rendering visual clip — maximum 180 seconds')
+                stage('Rendering visual clip — maximum 180 seconds',35)
                 job=dict(id='visual-'+uuid.uuid4().hex[:12],input=data['path'],source_url=data['source_url'],
                          start=float(data['start']),end=float(data['end']),title=data['title'],description='',
                          layout='fit',made_for_kids=False,privacy='public',needs_editorial_review=True)
@@ -164,7 +175,7 @@ def auto_batch(limit=3):
             stage('Auto-run: '+item['title'][:80])
             source=retry(lambda:prep.import_video(item['url'],defaults.get('clearance','')),'Download')
             retry(lambda:prep.prepare(source['input'],source['source_url'],defaults['count'],defaults['transcription_model'],
-                                      defaults['captions'],'semantic',defaults['editor_model']),'Scene selection')
+                                      defaults['captions'],'semantic',defaults['editor_model'],progress=lambda n,m: stage(m,n)),'Scene selection')
             stage('Clips are ready in Review & publish'); return
         except Exception as exc:
             traceback.print_exc(); errors.append(f"{item['title'][:50]}: {exc}")

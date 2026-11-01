@@ -131,3 +131,16 @@ Owner request: remove the permission record, automatic clip count, delete unwant
 Tests: `python -m unittest discover -s tests` → 75 OK with Streamlit installed (the AppTest ran). Added a `discard_clip` test.
 
 2026-10-29 (Claude, same PR): visual polish at the owner's request — `.streamlit/config.toml` dark theme with coral accent, header with gradient title and chips, gradient primary buttons, rounded cards/metrics/video. Styling only; no behavior change. 75 tests OK; checked with a headless-browser screenshot.
+## 2026-11-01 — Codex — lighter Step 2 processing and visible progress
+
+The owner reported that selecting a source appeared to stop before clips reached Step 2.
+Online imports now reject finished videos longer than 20 minutes, reducing download,
+transcription and rendering load while preserving manual visual clips from imported files.
+The worker writes percentage progress and estimated remaining seconds to `data/activity.json`;
+the dashboard displays those values and explains that temporary network failures retry
+automatically. Preparation reports progress after transcription, scene selection and each
+rendered clip. Existing 15–180 second output rules and public publishing behavior remain.
+
+Tests: `python -m unittest discover -s tests -v` → 75 passed, 2 skipped; `py_compile` and
+`git diff --check` passed.
+
