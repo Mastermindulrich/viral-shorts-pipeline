@@ -104,7 +104,7 @@ def execute(request):
             elif action=='import':
                 import preparation as prep
                 stage('Importing source for visual selection',5)
-                retry(lambda:prep.import_video(data['url'],data.get('clearance','')),'Download')
+                import_source(data['url'],data.get('clearance',''),data.get('title',''))
                 stage('Source imported — ready for a visual cut',100,0)
             elif action=='prepare':
                 import preparation as prep
@@ -113,14 +113,14 @@ def execute(request):
                 stage('Checking the local AI editor',3)
                 editorial.require_model(studio.preferences()['editor_model'])
                 if data.get('url'):
-                    stage('Downloading a short source (max 20 minutes)',10); source=retry(lambda:prep.import_video(data['url'],data.get('clearance','')),'Download'); path=source['input']; url=source['source_url']
+                    stage('Downloading the video (720p, max 20 minutes)',10); source=import_source(data['url'],data.get('clearance',''),data.get('title','')); path=source['input']; url=source['source_url']
                 else: path=data['path']; url=data['source_url']
                 stage('Transcribing the short source',35)
                 defaults=studio.preferences()
                 retry(lambda:prep.prepare(path,url,data.get('count',defaults['count']),
                              data.get('transcription_model',defaults['transcription_model']),data.get('captions',defaults['captions']),
                              'semantic',defaults['editor_model'],progress=lambda n,m: stage(m,n)),'Scene selection')
-                stage('Clips rendered — ready for Review & publish',100,0)
+                stage('Clips are ready to review',100,0)
             elif action=='auto':
                 auto_batch()
             elif action=='visual':
@@ -161,32 +161,62 @@ def execute(request):
         traceback.print_exc()
         state=p.read(STATE); state.update(status='failed',error=str(exc)); p.write(STATE,state)
 
+def import_source(url, clearance='', title=''):
+    """Download with retries; a video YouTube refuses is remembered so scans stop offering it."""
+    import preparation as prep
+    try: return retry(lambda:prep.import_video(url,clearance),'Download')
+    except ValueError as exc:
+        try:
+            import scouting
+            ident=prep.video_url(url).rsplit('=',1)[-1]
+            scouting.mark_unsupported(ident,title,exc)
+        except Exception: pass
+        raise
+
+FRESH_SCAN_SECONDS=30*60
+
+def fresh_choices(scouting, used):
+    """Unused shortlist videos from a scan younger than 30 minutes, so a new round can skip searching."""
+    rotation=p.DATA/'discovery-rotation.json'; ranked=p.DATA/'ranked-candidates.json'
+    if not (rotation.exists() and ranked.exists()): return []
+    try:
+        last=dt.datetime.fromisoformat(p.read(rotation)['last_scan'])
+        if (dt.datetime.now(dt.timezone.utc)-last).total_seconds()>FRESH_SCAN_SECONDS: return []
+        return [x for x in scouting.shortlist(scouting.visible_ranked(p.read(ranked))) if x['url'] not in used]
+    except Exception: return []
+
 def auto_batch(limit=3):
     """Scout, pick the best fresh shortlist video and prepare review-ready clips with no clicks in between."""
     import scouting, studio
     import preparation as prep
     defaults=studio.preferences()
     import editorial
+    stage('Checking the local AI editor',2)
     editorial.require_model(defaults['editor_model'])
-    stage('Searching recent events and selected topics')
-    result=retry(scouting.discover_broad,'Search')
-    for warning in result.get('warnings',[]): print('Discovery warning: '+warning,flush=True)
-    stage('Ranking sources'); ranked=retry(scouting.refresh,'Ranking')
     used=used_sources()
-    choices=[x for x in scouting.shortlist(scouting.visible_ranked(ranked)) if x['url'] not in used][:limit]
+    choices=fresh_choices(scouting,used)
+    if choices: stage('Using your scan from the last 30 minutes — no new search needed',8)
+    else:
+        stage('Searching recent events and selected topics',4)
+        result=retry(scouting.discover_broad,'Search')
+        for warning in result.get('warnings',[]): print('Discovery warning: '+warning,flush=True)
+        stage('Ranking and checking videos can be downloaded',8); ranked=retry(scouting.refresh,'Ranking')
+        choices=[x for x in scouting.shortlist(scouting.visible_ranked(ranked)) if x['url'] not in used]
+    choices=choices[:limit]
     if not choices: raise ValueError('No new videos meet your saved filters. Widen the date window or lower the view thresholds.')
     errors=[]
-    for item in choices:
+    for number,item in enumerate(choices,1):
         try:
-            stage('Auto-run: '+item['title'][:80])
-            source=retry(lambda:prep.import_video(item['url'],defaults.get('clearance','')),'Download')
+            stage(f'Video {number} of {len(choices)}: downloading “{item["title"][:70]}”',10)
+            source=import_source(item['url'],defaults.get('clearance',''),item.get('title',''))
             retry(lambda:prep.prepare(source['input'],source['source_url'],defaults['count'],defaults['transcription_model'],
                                       defaults['captions'],'semantic',defaults['editor_model'],progress=lambda n,m: stage(m,n)),'Scene selection')
-            stage('Clips are ready in Review & publish'); return
+            stage('Clips are ready to review',100,0); return
         except Exception as exc:
             traceback.print_exc(); errors.append(f"{item['title'][:50]}: {exc}")
             try: scouting.hide_video(item)
             except Exception: pass
+            if number<len(choices): stage('That video did not work out — trying the next one automatically',10)
     raise RuntimeError('Auto-run could not prepare any of the top videos — '+' | '.join(errors))
 
 def used_sources():

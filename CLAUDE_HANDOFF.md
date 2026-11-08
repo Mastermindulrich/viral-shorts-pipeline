@@ -1,6 +1,6 @@
 # Viral Moment Clips — Shared Handoff (Claude and Codex/ChatGPT)
 
-Updated: 2026-10-29 (America/Toronto)
+Updated: 2026-11-08 (America/Toronto)
 Canonical repository: `https://github.com/Mastermindulrich/viral-shorts-pipeline`
 Canonical GitHub branch: `main`
 Last recorded state: see the newest entry in `PROJECT_COLLABORATION_LOG.md`.
@@ -165,6 +165,17 @@ Default timezone is `America/Toronto`; it can be changed in Activity & settings.
 **Owner changes 2026-10-29 (second request):** the permission-record field is removed from the UI; imports and approvals store the placeholder `pipeline.DEFAULT_REFERENCE` ('Owner-confirmed at approval') so receipts and approval hashes keep a reference, and the Publish press is the owner's authorization. The clip count is automatic (about one per 6 minutes of speech, 1–5; `studio` default `count='auto'`). Review & publish has per-clip **Publish now** and **Delete** (`pipeline.discard_clip`; refuses anything with an upload receipt) and **Approve & publish all**. The top of the dashboard has **Make clips automatically** (the `auto` task). Tabs are now: Find videos, Make clips from a link, Review & publish, Published, Settings.
 
 Speed: download capped at 720p, Whisper `beam_size=1`, FFmpeg `veryfast`/crf 22, the final audit reviews only `limit+2` candidates. The final audit now merges omitted fields from the validated proposal (a 7B model often returns partial JSON, which previously failed validation and left zero clips).
+
+### Redesign 2026-11-08 (current UI — supersedes the tab names above)
+
+Owner asked for an Apple-style, minimal dashboard with the fewest steps from fetching to posting, no failures from unusable sources and faster rounds.
+
+- Layout: title + Ready/Setup-needed pill; one status card (shows **Make new clips** = the `auto` task, or live progress with ETA, or the last error with remedies); tabs **Review (n)**, **Discover**, **Published**, **Settings**; **Activity and diagnostics** stays collapsed at the bottom. No sidebar. Theme: black/graphite with system blue (`.streamlit/config.toml`).
+- Review: **Publish all N** at the top, then one card per clip with Title, **Publish**, **Delete**, and a Details expander (description, audience, source, alternatives, SRT). Duplicate-moment and >180 s blocks unchanged.
+- Discover: paste-a-link + **Make clips**; the 10-choice shortlist as a two-column grid (thumbnail, stats, **Make clips**, Watch, Hide); **Search again**; saved **Filters**; Hidden (restore); **Skipped automatically** (exclusion reasons + unsupported videos); **Manual tools** (import only, imported videos, visual moment).
+- Removed as redundant at the owner's request: "Use this video" (the link field and per-video **Make clips** cover it), the sidebar, the separate Make-clips tab and the Refresh button (the page reloads itself when a task ends).
+- Source screening (step 1): `content_policy.source_problem` + `MAX_SOURCE_SECONDS=1200`, `MIN_SOURCE_SECONDS=30` are shared by discovery and import. `scouting.refresh` requests `status` and `liveStreamingDetails` (no extra quota) and drops live/upcoming, unfinished streams, >20 min, <30 s, age-restricted, non-public, still-processing and region-blocked (`home_region`, default CA) videos with a reason. `filter_ranked` applies the same check to stale saved results. `preparation.import_video` checks yt-dlp metadata (live_status, availability, age_limit, duration) before creating any folder; refused-download messages become `ValueError` (not retried). `app_runtime.import_source` records refused videos in `data/scouting-unsupported.json` so they never reappear.
+- Speed: auto-run reuses a scan younger than 30 minutes; one metadata read per download; detected language is checked before transcription (non-English stops in seconds); Whisper uses all CPU cores, `condition_on_previous_text=False` and reports per-minute progress; on Macs whose FFmpeg has `h264_videotoolbox`, renders use the hardware encoder with automatic libx264 fallback.
 
 ## 4. Repository architecture
 

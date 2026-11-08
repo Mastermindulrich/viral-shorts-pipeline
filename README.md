@@ -8,12 +8,12 @@ clips **public immediately**; YouTube processing or channel restrictions can del
 ## Daily workflow
 
 1. Open **Viral Moment Clips.app** from your Mac Applications folder.
-2. Click **Make clips automatically** at the top. It finds the best new video from your saved filters, cuts the clips and adds English subtitles. (Or use **Find videos** to pick one of 10 choices yourself, or **Make clips from a link**.)
-3. Open **Review & publish**, watch each clip, adjust the title if needed, then click **Publish now** (your approval; the clip goes public immediately) or **Delete** to discard it.
+2. Click **Make new clips** at the top. It finds the best new video from your saved filters (skipping live, upcoming, restricted and over-20-minute videos before anything downloads), cuts the clips and adds English subtitles. Or open **Discover** to pick one of 10 choices yourself, or paste a link there.
+3. Open **Review**, watch each clip, adjust the title if needed, then click **Publish** or **Publish all** (your approval; clips go public immediately) or **Delete** to discard one.
    You can also save approvals and publish a selected batch.
 5. **Published** defaults to today's uploads. Choose a particular day, month, year,
    all dates, or search titles. Dates use America/Toronto by default; change that
-   under **Activity & settings**.
+   under **Settings**.
 
 The Mac must stay awake and Ollama must be running with `qwen2.5:7b` installed.
 Tasks continue if the browser is closed or refreshed. The first use of a new
@@ -24,7 +24,7 @@ and the extra editorial review can take several minutes or longer.
 
 Defaults: uploads from the last **3 days**, at least **5,000 views**, at least
 **200 views/hour**, and a preference for independent uploads. Save different
-settings in **Find videos → Discovery filters**. Filter choices are stored in
+settings in **Discover → Filters**. Filter choices are stored in
 `data/scouting-preferences.json`, so existing local config files stay intact.
 
 Included categories cover Champions League/football, exceptional sports moments,
@@ -118,7 +118,7 @@ bash Install-Mac.command
 
 The installer creates `.venv` with Python 3.11+ if it is missing, installs dependencies,
 runs a setup check and installs the launcher. Re-running it keeps `data/` and your settings.
-Check local readiness at any time (also shown under **Activity & settings → Mac setup check**):
+Check local readiness at any time (also shown under **Settings → Setup check details**):
 
 ```bash
 cd ~/viral-shorts-pipeline
@@ -131,7 +131,7 @@ the exact command for anything missing. It never prints credential contents.
 **Generate clips** checks Ollama and the model first, so a missing editor fails in seconds
 instead of after a long download and transcription.
 
-For an existing installation, use **Activity & settings → Update app**. It fetches the
+For an existing installation, use **Settings → Update app**. It fetches the
 configured upstream, accepts only a fast-forward update, preserves local JSON config,
 installs dependencies, runs checks and restarts the service. Failed installation/tests
 restore the previous code. Dependency changes are not fully rolled back. Local code edits
@@ -140,7 +140,7 @@ in `data/`; they are not committed to Git.
 
 The macOS launchd service starts at login and the Finder app opens the dashboard at
 `http://127.0.0.1:8501`. It does not require keeping VS Code or a terminal open. Logs are in
-`data/logs/activity.log`; **Activity & settings** provides filtered diagnostics to share.
+`data/logs/activity.log`; **Activity and diagnostics** at the bottom of the page provides filtered diagnostics to share.
 The previous manual interface remains available as `dashboard_legacy.py`.
 
 ## Development and operational limits
@@ -160,7 +160,7 @@ exact exported bytes and job metadata. Uploads verify the expected channel and u
 reservations to prevent automatic duplicate attempts after ambiguous failures. A clip is
 also blocked when an earlier upload attempt (confirmed or uncertain) used the same source
 and overlaps at least half of the shorter clip, or has identical video bytes, so a
-regenerated batch cannot republish a moment. Review & publish shows these as warnings.
+regenerated batch cannot republish a moment. Review shows these as warnings.
 In a multi-clip publish, a blocked clip no longer stops the remaining clips. The daily
 attempt limit uses UTC independently of the publishing-history display timezone.
 
