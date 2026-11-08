@@ -43,6 +43,18 @@ def media_tool(name):
         if path.is_file(): return str(path)
     return name
 
+_HARDWARE=None
+
+def hardware_encoder():
+    """True when FFmpeg on this Mac offers Apple's VideoToolbox H.264 encoder."""
+    global _HARDWARE
+    if _HARDWARE is None:
+        try:
+            listed = subprocess.run([media_tool('ffmpeg'), '-hide_banner', '-encoders'], capture_output=True, text=True, timeout=20).stdout
+            _HARDWARE = sys.platform == 'darwin' and 'h264_videotoolbox' in listed
+        except Exception: _HARDWARE = False
+    return _HARDWARE
+
 def digest(path):
     h = hashlib.sha256()
     with Path(path).open('rb') as f:
@@ -159,10 +171,15 @@ def render(job):
         if job.get('transcript'):
             vf += ",subtitles=filename=captions.srt:force_style='FontName=Arial,FontSize=18,Bold=1,Outline=2,MarginV=55'"
     tmp = dest / 'clip.partial.mp4'
-    run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(job['start']), '-i', str(src),
-         '-t', str(job['end']-job['start']), '-map', '0:v:0', '-map', '0:a:0', '-vf', vf,
-         '-r', '30', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p',
-         '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', str(tmp.resolve())], cwd=dest)
+    base = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(job['start']), '-i', str(src),
+            '-t', str(job['end']-job['start']), '-map', '0:v:0', '-map', '0:a:0', '-vf', vf, '-r', '30']
+    tail = ['-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', str(tmp.resolve())]
+    software = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22']
+    if hardware_encoder():
+        # The Mac's media engine encodes several times faster than libx264; fall back if it refuses.
+        try: run(base + ['-c:v', 'h264_videotoolbox', '-b:v', '8M', '-maxrate', '12M', '-bufsize', '16M'] + tail, cwd=dest)
+        except subprocess.CalledProcessError: run(base + software + tail, cwd=dest)
+    else: run(base + software + tail, cwd=dest)
     validate_export_duration(tmp)
     tmp.replace(dest / 'clip.mp4')
     run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str((dest/'clip.mp4').resolve()),

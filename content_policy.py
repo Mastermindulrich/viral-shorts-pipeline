@@ -5,6 +5,11 @@ VERSION='fresh-coherent-180s-v4'
 # The former one-minute cap was removed. Keep a practical three-minute ceiling so
 # clips remain short-form and rendering/upload costs remain bounded.
 MAX_CLIP_SECONDS=180
+# Sources must be finished, publicly downloadable videos short enough to process
+# locally. Discovery and import share these limits so step 1 never offers a video
+# that the download step will refuse.
+MAX_SOURCE_SECONDS=20*60
+MIN_SOURCE_SECONDS=30
 TOPICS=[
     {'name':'Champions League and football','query':'"Champions League" | Mbappe | Messi | Ronaldo reaction controversy goal fan footage'},
     {'name':'Viral sports moments','query':'NBA | basketball | football | tennis incredible moment controversy athlete reaction'},
@@ -73,6 +78,28 @@ def screen(item):
     kind='reaction' if reaction else 'trailer' if trailer else 'dance' if dance else 'spoken'
     language='English declared' if english else 'Visual dance — review dialogue' if visual else 'Language needs verification'
     return dict(eligible=True,reason='Matches channel screening rules',kind=kind,language_status=language)
+
+def source_problem(item):
+    """Plain-English reason a discovered video cannot be processed, or '' when it can.
+
+    Uses only fields already present in the saved metadata, so stale saved results
+    are filtered as well as new scans."""
+    live=str(item.get('live_status') or item.get('liveBroadcastContent') or '').lower()
+    if live in ('live','is_live','upcoming','is_upcoming','post_live'):
+        return 'Still live, upcoming or still processing after a live stream'
+    if item.get('live_started') and not item.get('live_ended'):
+        return 'Still live, upcoming or still processing after a live stream'
+    seconds=item.get('duration_seconds')
+    if seconds is not None:
+        if seconds<MIN_SOURCE_SECONDS: return f'Shorter than {MIN_SOURCE_SECONDS} seconds'
+        if seconds>MAX_SOURCE_SECONDS: return f'Longer than {MAX_SOURCE_SECONDS//60} minutes'
+    if item.get('age_restricted'): return 'Age-restricted (needs a signed-in download)'
+    if item.get('privacy') not in (None,'','public'): return 'Not a public video'
+    if item.get('upload_status') not in (None,'','processed'): return 'YouTube is still processing this video'
+    if item.get('region_blocked'): return 'Blocked in your region'
+    if item.get('unsupported'): return 'Could not be downloaded earlier: '+str(item['unsupported'])[:160]
+    return ''
+
 
 def visible_candidates(items):
     """Re-screen saved results too; never show excluded releases after an update."""

@@ -1,5 +1,6 @@
 """Renders the real dashboard against a temporary data folder; never touches local data."""
 import datetime as dt
+import os
 import importlib.util
 import tempfile
 import unittest
@@ -42,20 +43,30 @@ class DashboardTests(unittest.TestCase):
 
     def test_shortlist_tabs_and_duplicate_warning(self):
         app=self.run_app()
-        self.assertEqual([t.label for t in app.tabs],['Find videos','Make clips from a link','Review & publish','Published','Settings'])
-        choices=[x for x in app.expander if x.label.startswith('Champions League fan reaction')]
+        self.assertEqual([t.label for t in app.tabs],['Review (2)','Discover','Published','Settings'])
+        choices=[b for b in app.button if (b.key or '').startswith('generate-')]
         self.assertEqual(len(choices),10)
         self.assertTrue(any('Already published from this moment' in x.value and 'youtu.be/abc' in x.value for x in app.warning))
         self.assertTrue(any('video file is missing' in x.value for x in app.warning))
+        self.assertTrue(any(b.key=='auto' for b in app.button))
 
-    def test_use_this_video_stays_enabled_while_busy(self):
-        import os
-        p.write(r.STATE,dict(status='running',pid=os.getpid(),action='prepare',stage='Working'))
+    def test_delete_in_review_and_hide_stay_available(self):
         app=self.run_app()
-        use=[b for b in app.button if b.label=='Use this video']
-        self.assertEqual(len(use),10)
-        self.assertFalse(any(b.disabled for b in use))
-        self.assertTrue(all(b.disabled for b in app.button if b.label=='Generate clips from this video'))
+        self.assertTrue(any(b.key=='del-repeat' for b in app.button))
+        self.assertTrue(any(b.key=='del-missing' for b in app.button))
+        self.assertEqual(len([b for b in app.button if (b.key or '').startswith('hide-')]),10)
+
+    def test_busy_task_shows_progress_and_disables_starting_work(self):
+        # Owner request 2026-11-08: "Use this video" was removed as redundant; the
+        # shortlist stays visible while a task runs, and buttons that would start
+        # a second task are disabled.
+        p.write(r.STATE,dict(status='running',pid=os.getpid(),action='prepare',stage='Working',progress=40,eta_seconds=90))
+        app=self.run_app()
+        self.assertTrue(app.get('progress'))
+        make=[b for b in app.button if (b.key or '').startswith('generate-')]
+        self.assertEqual(len(make),10)
+        self.assertTrue(all(b.disabled for b in make))
+        self.assertFalse(any(b.key=='auto' for b in app.button))
 
 
 if __name__=='__main__': unittest.main()

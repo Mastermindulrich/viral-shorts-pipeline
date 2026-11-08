@@ -66,7 +66,7 @@ def filter_ranked(items, prefs=None, now=None):
         signal=item.get('measured_views_per_hour')
         if signal is None: signal=item.get('average_views_per_hour',0)
         if signal<float(prefs['min_views_per_hour']): continue
-        if not 15<=item.get('duration_seconds',0)<=10800: continue
+        if item.get('duration_seconds') is None or policy.source_problem(item): continue
         text=(item.get('title','')+' '+item.get('source','')).casefold()
         if any(x in text for x in keyword_list(prefs['exclude_keywords'])): continue
         required=keyword_list(prefs['include_keywords'])
@@ -114,8 +114,26 @@ def restore_video(ident):
         p.write(p.DATA/'scouting-hidden.json',hidden)
 
 
+def unsupported_videos():
+    path=p.DATA/'scouting-unsupported.json'
+    return p.read(path) if path.exists() else {}
+
+
+def mark_unsupported(ident, title, reason):
+    """Remember a video the download step refused, so later scans never offer it again."""
+    with p.lock():
+        records=unsupported_videos()
+        records[ident]={'title':title or ident,'reason':str(reason)[:300],
+                        'marked_at':dt.datetime.now(dt.timezone.utc).isoformat()}
+        p.write(p.DATA/'scouting-unsupported.json',records)
+
+
+def skipped_ids():
+    return set(hidden_videos())|set(unsupported_videos())
+
+
 def visible_ranked(items):
-    hidden=hidden_videos()
+    hidden=skipped_ids()
     current=[x for x in items if x.get('policy_version')==policy.VERSION and x['id'] not in hidden]
     return filter_ranked(policy.visible_candidates(current))
 
@@ -156,17 +174,32 @@ def refresh():
     from googleapiclient.discovery import build
     service=build('youtube','v3',credentials=p.credentials(),cache_discovery=False)
     candidates=p.read(p.DATA/'candidates.json') if (p.DATA/'candidates.json').exists() else []
-    hidden=hidden_videos()
+    hidden=skipped_ids()
+    region=str(p.read(p.ROOT/'config'/'discovery.json').get('home_region','CA')) if (p.ROOT/'config'/'discovery.json').exists() else 'CA'
     lookup={x['id']:x for x in candidates if x['id'] not in hidden}
     items=[]; excluded=[]
     ids=list(lookup)
     for offset in range(0,len(ids),50):
-        response=service.videos().list(part='snippet,statistics,contentDetails',id=','.join(ids[offset:offset+50])).execute()
+        # Extra parts cost no extra quota and let step 1 drop videos the download step would refuse.
+        response=service.videos().list(part='snippet,statistics,contentDetails,status,liveStreamingDetails',
+                                       id=','.join(ids[offset:offset+50])).execute()
         for item in response.get('items',[]):
             if item['id'] not in lookup: continue
-            secs=duration_seconds(item.get('contentDetails',{}).get('duration'))
-            if secs is None or item['snippet'].get('liveBroadcastContent') in ('live','upcoming'): continue
-            snippet=item['snippet']
+            snippet=item['snippet']; details=item.get('contentDetails',{}); status=item.get('status',{})
+            live=item.get('liveStreamingDetails',{})
+            restriction=details.get('regionRestriction',{})
+            facts=dict(duration_seconds=duration_seconds(details.get('duration')),
+                       live_status=snippet.get('liveBroadcastContent','none'),
+                       live_started=live.get('actualStartTime','') or live.get('scheduledStartTime',''),
+                       live_ended=live.get('actualEndTime',''),
+                       age_restricted=details.get('contentRating',{}).get('ytRating')=='ytAgeRestricted',
+                       privacy=status.get('privacyStatus',''),upload_status=status.get('uploadStatus',''),
+                       region_blocked=region in restriction.get('blocked',[]) or
+                                      ('allowed' in restriction and region not in restriction['allowed']))
+            problem='Duration not available (live or unfinished)' if facts['duration_seconds'] is None else policy.source_problem(facts)
+            if problem:
+                excluded.append(dict(id=item['id'],title=snippet.get('title',''),reason=problem))
+                continue
             candidate=dict(lookup[item['id']],title=snippet['title'],source=snippet['channelTitle'],
                            channel_id=snippet.get('channelId',''),
                            categoryId=snippet.get('categoryId',''),description=snippet.get('description',''),
@@ -176,7 +209,7 @@ def refresh():
             if not decision['eligible']:
                 excluded.append(dict(id=item['id'],title=candidate['title'],reason=decision['reason']))
                 continue
-            items.append(dict(candidate,policy=decision,policy_version=policy.VERSION,published=snippet['publishedAt'],duration_seconds=secs,
+            items.append(dict(candidate,**facts,policy=decision,policy_version=policy.VERSION,published=snippet['publishedAt'],
                               views=int(item.get('statistics',{}).get('viewCount',0)),
                               likes=int(item.get('statistics',{}).get('likeCount',0))))
     snapshot=p.DATA/'scout-snapshot.json'
@@ -241,7 +274,7 @@ def discover_broad():
                 found[vid]=dict(id=vid,title=sn['title'],url='https://www.youtube.com/watch?v='+vid,
                                published=sn['publishedAt'],source=sn['channelTitle'],discovered_via=topic['name'])
         except Exception as exc: errors.append(f"{topic['name']}: {exc}")
-    hidden=hidden_videos()
+    hidden=skipped_ids()
     rows=sorted(policy.visible_candidates([x for x in found.values() if x['id'] not in hidden and x.get('published','')>=after]),key=lambda x:x.get('published',''),reverse=True)[:1000]
     p.write(old,rows)
     p.write(state_path,{'next_topic':(cursor+topic_budget)%len(topics), 'last_topics':queried,

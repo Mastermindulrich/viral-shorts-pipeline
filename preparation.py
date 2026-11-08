@@ -6,7 +6,39 @@ from urllib.parse import urlparse, parse_qs
 import pipeline as p
 import content_policy as policy
 
-MAX_SOURCE_SECONDS = 20 * 60
+MAX_SOURCE_SECONDS = policy.MAX_SOURCE_SECONDS
+# yt-dlp messages that mean YouTube will not hand this video to an anonymous
+# download. Retrying cannot help, so they become a plain ValueError.
+UNSUPPORTED_HINTS = ('sign in to confirm','private video','members-only','members only','join this channel',
+                     'not available in your country','blocked it in your country','video unavailable',
+                     'premieres in','live event will begin','this live event','is not a valid url','unsupported url',
+                     'requested format is not available','copyright','account associated','has been removed',
+                     'age-restricted','inappropriate','confirm your age','drm')
+
+
+def source_problem(info):
+    """Reason yt-dlp metadata shows a video cannot be processed, or ''."""
+    status = str(info.get('live_status') or '')
+    if info.get('is_live') or status in ('is_live','is_upcoming','post_live'):
+        return 'This video is still live, upcoming or still processing after a live stream. Try it once YouTube finishes processing.'
+    availability = str(info.get('availability') or '')
+    if availability in ('private','premium_only','subscriber_only','needs_auth'):
+        return 'YouTube only allows signed-in or paying viewers to watch this video, so it cannot be downloaded.'
+    if int(info.get('age_limit') or 0) >= 18:
+        return 'This video is age-restricted, so it cannot be downloaded without signing in.'
+    duration = info.get('duration')
+    if not duration:
+        return 'YouTube did not report a length for this video (often a live or unfinished upload).'
+    if duration > MAX_SOURCE_SECONDS:
+        return f'This video is longer than {MAX_SOURCE_SECONDS//60} minutes. Choose a shorter one so processing stays fast.'
+    if duration < policy.MIN_SOURCE_SECONDS:
+        return f'This video is shorter than {policy.MIN_SOURCE_SECONDS} seconds, too short to cut a clip from.'
+    return ''
+
+
+def download_refused(exc):
+    text = str(exc).lower()
+    return any(hint in text for hint in UNSUPPORTED_HINTS)
 
 
 def video_url(url):
@@ -43,20 +75,29 @@ def import_video(url, clearance=''):
             decision=policy.screen(old)
             if not decision['eligible']: raise ValueError(decision['reason'])
             return old
-    folder.mkdir(parents=True, exist_ok=True)
     opts = dict(noplaylist=True, outtmpl=str(folder/'source.%(ext)s'),
-                format='bv[height<=720]+ba/b[height<=720]', merge_output_format='mp4',
-                socket_timeout=30, retries=2, fragment_retries=2, quiet=True,
-                max_filesize=2_000_000_000)
-    with YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url,download=False)
-        if info.get('is_live') or not info.get('duration') or info['duration']>MAX_SOURCE_SECONDS:
-            raise ValueError(f'Use a finished video no longer than {MAX_SOURCE_SECONDS//60} minutes so the local workflow stays light')
-        decision=policy.screen(dict(title=info.get('title',''),creator=info.get('uploader',''),
-                                    description=info.get('description',''),audio_language=info.get('language',''),
-                                    categoryId='10' if 'Music' in (info.get('categories') or []) else ''))
-        if not decision['eligible']: raise ValueError(decision['reason'])
-        info = ydl.extract_info(url, download=True)
+                format='bv*[height<=720][ext=mp4]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/b',
+                merge_output_format='mp4', socket_timeout=30, retries=3, fragment_retries=3, quiet=True,
+                concurrent_fragment_downloads=4, max_filesize=2_000_000_000)
+    from yt_dlp.utils import DownloadError
+    try:
+        with YoutubeDL(opts) as ydl:
+            # Read metadata once and check it before anything is written to disk.
+            info = ydl.extract_info(url,download=False)
+            problem = source_problem(info)
+            if problem: raise ValueError(problem)
+            decision=policy.screen(dict(title=info.get('title',''),creator=info.get('uploader',''),
+                                        description=info.get('description',''),audio_language=info.get('language',''),
+                                        categoryId='10' if 'Music' in (info.get('categories') or []) else ''))
+            if not decision['eligible']: raise ValueError(decision['reason'])
+            folder.mkdir(parents=True, exist_ok=True)
+            # Reuse the metadata already read instead of asking YouTube twice.
+            try: info = ydl.process_ie_result(info, download=True)
+            except (TypeError, KeyError, AttributeError): info = ydl.extract_info(url, download=True)
+    except DownloadError as exc:
+        if download_refused(exc):
+            raise ValueError('YouTube will not provide this video for download: '+str(exc).replace('ERROR: ','')[:240]) from exc
+        raise
     files = [x for x in folder.glob('source.*') if x.suffix.lower() in ('.mp4','.mkv','.webm','.mov')]
     if len(files)!=1:
         raise ValueError('Download did not produce one merged video. Check FFmpeg and source availability.')
@@ -94,6 +135,19 @@ def windows(segments, limit=3):
     return sorted(selected,key=lambda x:x['start'])
 
 
+_MODELS={}
+
+
+def whisper(model):
+    """One loaded speech model per process, using every CPU core."""
+    import os
+    from faster_whisper import WhisperModel
+    key=(model,id(WhisperModel))
+    if key not in _MODELS:
+        _MODELS[key]=WhisperModel(model,device='cpu',compute_type='int8',cpu_threads=os.cpu_count() or 4)
+    return _MODELS[key]
+
+
 def prepare(source, source_url, count='auto', model='base', captions=False, editor='basic', editor_model='qwen2.5:7b', progress=None):
     source=Path(source).resolve()
     receipt=source.parent/'source.json'
@@ -104,20 +158,28 @@ def prepare(source, source_url, count='auto', model='base', captions=False, edit
         if not decision['eligible']: raise ValueError(decision['reason'])
     key=p.digest(source)[:16]
     transcript=p.DATA/'transcripts'/(key+('-words-'+model+'-v3' if editor=='semantic' else '')+'.json')
-    if not transcript.exists():
-        from faster_whisper import WhisperModel
-        segments,language_info=WhisperModel(model,device='cpu',compute_type='int8').transcribe(
-            str(source),vad_filter=True,word_timestamps=True,beam_size=1)
-        p.write(transcript,[dict(start=s.start,end=s.end,text=s.text.strip(),
-            words=[dict(start=w.start,end=w.end,word=w.word) for w in (s.words or [])]) for s in segments])
-        p.write(transcript.with_suffix('.language.json'),dict(language=language_info.language,
-                probability=language_info.language_probability))
-    if progress: progress(58, 'Transcript ready — selecting the strongest complete scenes')
     language_path=transcript.with_suffix('.language.json')
-    if language_path.exists():
-        language=p.read(language_path)
-        if language.get('language')!='en' and language.get('probability',0)>=.8:
-            raise ValueError('English dialogue required for automatic editing. For visual dance, choose a manual cut and review any dialogue.')
+    def english_check():
+        if language_path.exists():
+            language=p.read(language_path)
+            if language.get('language')!='en' and language.get('probability',0)>=.8:
+                raise ValueError('English dialogue required for automatic editing. For visual dance, choose a manual cut and review any dialogue.')
+    if not transcript.exists():
+        # Segments are generated lazily: the detected language is known before any
+        # transcription work, so a non-English source stops in seconds, not minutes.
+        segments,language_info=whisper(model).transcribe(
+            str(source),vad_filter=True,word_timestamps=True,beam_size=1,condition_on_previous_text=False)
+        p.write(language_path,dict(language=language_info.language,probability=language_info.language_probability))
+        english_check()
+        total=float(getattr(language_info,'duration',0) or 0); rows=[]
+        for s in segments:
+            rows.append(dict(start=s.start,end=s.end,text=s.text.strip(),
+                             words=[dict(start=w.start,end=w.end,word=w.word) for w in (s.words or [])]))
+            if progress and total and len(rows)%20==0:
+                progress(15+int(40*min(1,s.end/total)),f'Transcribing — {int(s.end//60)} of {int(total//60)+1} minutes done')
+        p.write(transcript,rows)
+    english_check()
+    if progress: progress(58, 'Transcript ready — selecting the strongest complete scenes')
     if count in (None,'auto'):
         spoken=p.read(transcript)
         minutes=(float(spoken[-1]['end']) if spoken else 0)/60
@@ -205,8 +267,7 @@ def caption_visual(job, model='small', burn=True):
         p.run(['ffmpeg','-hide_banner','-loglevel','error','-y','-ss',str(job['start']),
                '-i',str(p.material(job)),'-t',str(job['end']-job['start']),
                '-vn','-ac','1','-ar','16000',str(audio)])
-        from faster_whisper import WhisperModel
-        segments,info=WhisperModel(model,device='cpu',compute_type='int8').transcribe(
+        segments,info=whisper(model).transcribe(
             str(audio),vad_filter=True,word_timestamps=True,beam_size=5)
         segments=list(segments)
         if info.language!='en' or info.language_probability<.8 or not segments:
