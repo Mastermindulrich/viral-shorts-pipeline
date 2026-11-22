@@ -109,7 +109,7 @@ class BroadDiscoveryTests(unittest.TestCase):
         service.videos.return_value.list.return_value.execute.return_value={'items':[]}
         service.search.return_value.list.return_value.execute.return_value={'items':[
             {'id':{'videoId':'abcdefghijk'},'snippet':{'title':'Example','publishedAt':dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00','Z'),'channelTitle':'Example creator'}}]}
-        with tempfile.TemporaryDirectory() as td, patch.object(p,'ROOT',Path(td)), patch.object(p,'DATA',Path(td)/'data'), patch.object(s,'preferences',return_value=dict(s.DEFAULTS,categories=[])), patch.object(p,'credentials',return_value=None), patch.dict('sys.modules',{'googleapiclient':types.ModuleType('googleapiclient'),'googleapiclient.discovery':types.SimpleNamespace(build=lambda *a,**k:service)}):
+        with tempfile.TemporaryDirectory() as td, patch.object(p,'ROOT',Path(td)), patch.object(p,'DATA',Path(td)/'data'), patch.object(s,'preferences',return_value=dict(s.DEFAULTS,categories=[],focus='')), patch.object(p,'credentials',return_value=None), patch.dict('sys.modules',{'googleapiclient':types.ModuleType('googleapiclient'),'googleapiclient.discovery':types.SimpleNamespace(build=lambda *a,**k:service)}):
             p.write(Path(td)/'config'/'discovery.json',dict(searches_per_scan=2,regions=['US'],topics=[dict(name=str(i),query='query'+str(i)) for i in range(4)]))
             first=s.discover_broad()
             second=s.discover_broad()

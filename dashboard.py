@@ -114,7 +114,7 @@ def activity():
                 meta('Open Review below, watch them, then publish. Or make more clips first.')
             else:
                 st.markdown('### Make new clips')
-                meta('One press finds the strongest fresh video for your filters, cuts the best complete moments with English subtitles and brings them to Review. Nothing is published until you approve.')
+                meta('One press finds the strongest fresh video for your filters, cuts the best complete moments with English subtitles and brings them to Review. Clips made here wait for you; autopilot (Settings) posts its own clips daily.')
         with right:
             if st.button('Make new clips',type='primary',**FILL_BUTTON,key='auto'): launch('auto')
         if status=='failed':
@@ -330,6 +330,22 @@ with tools:
         try: st.success('Connected to '+p.channel()['name'])
         except Exception as exc: show_problem(exc)
     if b.button('Update app',disabled=busy,**FILL_BUTTON,help='Keeps your videos, sign-in and settings. A failed check restores the previous code.'): launch('update')
+    st.markdown('### Autopilot')
+    import autopilot
+    pilot=autopilot.settings(); last=autopilot.status()
+    slots=', '.join(f'{h}:00' for h in pilot['slots'])
+    meta(f"Posts {pilot['daily_target']} clips a day with no review (due by {slots}, your timezone), favouring GTA 6 gameplay. "
+         'Checks every hour and retries failures on its own. Clips still waiting in Review are never published by autopilot.')
+    if last: meta(f"Last run {last.get('last_run','')[:16].replace('T',' ')} UTC · {last.get('published_today',0)} of {last.get('target',pilot['daily_target'])} posted today · {last.get('ready',0)} ready"
+                  +(' · '+last['errors'][-1][:160] if last.get('errors') else ''))
+    with st.form('autopilot'):
+        enabled=st.toggle('Autopilot on',value=bool(pilot['enabled']))
+        target=st.number_input('Clips per day',min_value=1,max_value=10,value=int(pilot['daily_target']))
+        focus_only=st.toggle('Only GTA 6 videos',value=bool(pilot['focus_only']))
+        if st.form_submit_button('Save autopilot',disabled=busy):
+            try: autopilot.save_settings(dict(enabled=enabled,daily_target=int(target),focus_only=focus_only)); st.rerun()
+            except Exception as exc: show_problem(exc)
+    if st.button('Run autopilot now',disabled=busy): launch('autopilot')
     st.markdown('### Preferences')
     with st.form('preferences'):
         capability=p.caption_capability()

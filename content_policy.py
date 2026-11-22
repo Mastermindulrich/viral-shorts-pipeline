@@ -10,6 +10,21 @@ MAX_CLIP_SECONDS=180
 # that the download step will refuse.
 MAX_SOURCE_SECONDS=20*60
 MIN_SOURCE_SECONDS=30
+# Owner focus (2026-11-22): GTA 6 is out and creators are posting lots of
+# self-recorded gameplay. Focus searches take most of each scan's search budget
+# and matching videos rank first; other topics still rotate in the remaining slot.
+FOCUS={'name':'GTA 6 gameplay',
+       'pattern':r'\bgta\s*-?\s*(6|vi)\b|\bgta6\b|grand\s+theft\s+auto\s*(6|vi)\b',
+       'queries':['"GTA 6" gameplay funny moments','"GTA 6" gameplay first time playing reaction',
+                  '"GTA 6" streamer gameplay crazy moment','"GTA 6" police chase gameplay',
+                  '"GTA 6" gameplay commentary','"GTA 6" online gameplay chaos',
+                  '"GTA 6" gameplay vice city exploring','"GTA 6" fails glitches gameplay']}
+
+def is_focus(item):
+    # Title and description only: a search hit is not GTA footage just because the query was.
+    text=str(item.get('title',''))+' '+str(item.get('description',''))[:600]
+    return bool(re.search(FOCUS['pattern'],text,re.I))
+
 TOPICS=[
     {'name':'Champions League and football','query':'"Champions League" | Mbappe | Messi | Ronaldo reaction controversy goal fan footage'},
     {'name':'Viral sports moments','query':'NBA | basketball | football | tennis incredible moment controversy athlete reaction'},

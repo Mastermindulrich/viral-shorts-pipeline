@@ -1,6 +1,6 @@
 # Viral Moment Clips — Shared Handoff (Claude and Codex/ChatGPT)
 
-Updated: 2026-11-08 (America/Toronto)
+Updated: 2026-11-22 (America/Toronto)
 Canonical repository: `https://github.com/Mastermindulrich/viral-shorts-pipeline`
 Canonical GitHub branch: `main`
 Last recorded state: see the newest entry in `PROJECT_COLLABORATION_LOG.md`.
@@ -54,6 +54,8 @@ The user wants minimal input, but final review and the user's external permissio
 - Upload attempts reserve a receipt before network upload to avoid automatic duplicate retries after ambiguous failures.
 - Cross-job duplicate guard: upload is refused when any earlier receipt (uploaded or uncertain) has the same `source_url` and overlaps at least 50% of the shorter clip, or its approved video bytes are identical (`pipeline.upload_conflicts`). New receipts also store `source_url`, `start` and `end`. Review & publish shows these as warnings, and a multi-clip publish continues past a blocked clip, then reports "N of M clips not published".
 - Daily upload attempt limit is stored in `config/settings.json` and currently defaults to 20 UTC-day attempts.
+- **Autopilot (owner decision 2026-11-22):** the owner asked for at least 3 posts a day with no intervention. `autopilot.py` publishes clips it prepared itself **without a manual review** (it approves them in code, binding the same job/video hashes). Clips made from the dashboard still wait in Review and are never auto-published. All other rules above still apply to autopilot clips. Descriptions credit the original creator, and the source link is appended at upload.
+- **Discovery focus (owner decision 2026-11-22):** GTA 6 gameplay (people recording themselves playing). `content_policy.FOCUS` + `scouting` preference `focus` (default `GTA 6 gameplay`; set `''` to turn off). Focus searches take all but one search slot of each scan, focus videos bypass the category filter and get `scouting.FOCUS_BOOST` (+25) in ranking. GTA clips upload in YouTube category 20 (Gaming) via `job['category_id']`.
 
 ## 3. Current user workflow
 
@@ -204,7 +206,9 @@ Runtime data is under `data/` and should remain ignored by Git: OAuth secrets, t
 
 The dashboard starts a separate local worker process for `scout`, `rescreen`, `import`, `prepare`, `visual`, `publish`, `sync_history` and `update`. `data/activity.json` records status, stage, percentage and estimated remaining seconds. `data/logs/activity.log` records output. The UI fragment refreshes every three seconds and releases/re-enables controls when work completes.
 
-The app cannot process while the Mac is asleep. Ollama must be running for semantic selection. No unattended daily ingestion is currently enabled; scouting is on demand.
+The app cannot process while the Mac is asleep or shut down. Ollama must be running for semantic selection (autopilot starts it if it is closed).
+
+**Autopilot (2026-11-22).** launchd job `com.viralmomentclips.autopilot` (`~/Library/LaunchAgents`, installed with `.venv/bin/python app_runtime.py install-autopilot`, removed with `uninstall-autopilot`) runs `app_runtime.py autopilot-tick` every hour at :07 under `caffeinate -i`. The tick starts the `autopilot` task (so the dashboard shows progress and the usual lock applies) and skips quietly when another task is running. `autopilot.run`: reconcile receipts → publish clips due by now (default slots 11:00/16:00/20:00 in the studio timezone; after the last slot the whole daily target is due) → if the ready queue is shorter than what is still needed today (minimum 1 kept ready for the next morning), prepare up to `max_rounds` new videos (focus first, three candidates per round, failed ones hidden) → publish again. Duplicate-blocked/invalid clips are skipped permanently; the daily cap and transient errors keep the clip for the next tick; expired YouTube sign-in raises and sends a macOS notification. It upgrades yt-dlp at most once a day when downloads fail with extractor errors. Files: `data/autopilot-settings.json` (enabled, daily_target, slots, max_rounds, focus_only), `data/autopilot-queue.json` (ready ids, skipped ids with reason), `data/autopilot.json` (last run summary), `data/logs/autopilot.log`. Settings → Autopilot in the dashboard toggles it, sets clips per day and "Only GTA 6 videos", and has **Run autopilot now**.
 
 Resilience (2026-10-29): network-bound tasks retry automatically (`app_runtime.retry`, never for `ValueError`). The `auto` task / **Auto-run** button scouts, picks the top unused shortlist video, imports it with the saved default permission record and prepares clips for review. `pipeline.reconcile_receipts` resolves `uploading` receipts by exact title match before each publish. Publishing a batch continues past failed clips.
 
@@ -296,7 +300,8 @@ GitHub Actions run that passed: `40889961521`.
 - Content policy uses title/channel/category/description/audio-language metadata and can miss or over-exclude ambiguous videos.
 - The local AI editor sees transcript text, not video pixels. Visual content requires manual selection/review.
 - No direct TikTok, Instagram or Twitch connector exists; content must be found/imported through supported YouTube flows.
-- No unattended scheduled ingestion is enabled.
+- Autopilot needs the Mac on (asleep is fine: launchd runs a missed tick on wake; shut down is not). It cannot recover an expired YouTube sign-in by itself.
+- Reposting other creators' gameplay is a rights decision the owner has made; the app credits and links the creator but does not verify permission. YouTube Content ID claims or reused-content limits are possible.
 - No automatic face tracking, visual highlight detector, automatic thumbnail upload, rights verification or revenue prediction exists.
 - Existing old drafts may use older policy/editor IDs; generate new batches after update for the latest selection behavior.
 - The app's upload attempt cap uses UTC while history display uses a selected local timezone.

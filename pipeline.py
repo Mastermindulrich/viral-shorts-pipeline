@@ -377,7 +377,7 @@ def upload(job):
             raise ValueError('Scheduled videos must use private privacy')
         status['publishAt'] = job['publish_at']
     body = {'snippet': {'title': job['title'], 'description': job.get('description','') + '\n\nSource: ' + job['source_url'],
-                        'categoryId': '24', 'defaultLanguage': 'en'}, 'status': status}
+                        'categoryId': str(job.get('category_id') or '24'), 'defaultLanguage': 'en'}, 'status': status}
     write(receipt, {'state': 'uploading', 'day': today, 'attempted_at':dt.datetime.now(dt.timezone.utc).isoformat(), 'job_sha': fingerprint(job),
                     'source_url': job['source_url'], 'start': job['start'], 'end': job['end']})
     request = service.videos().insert(part='snippet,status', body=body,

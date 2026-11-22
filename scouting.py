@@ -8,7 +8,9 @@ import content_policy as policy
 
 DEFAULTS=dict(categories=[x['name'] for x in policy.TOPICS],days=3,min_views=5000,
               min_views_per_hour=200,source_preference='Prefer independent',
-              include_keywords='',exclude_keywords='',blocked_channels='',event_queries='')
+              include_keywords='',exclude_keywords='',blocked_channels='',event_queries='',
+              focus=policy.FOCUS['name'])
+FOCUS_BOOST=25
 CATEGORY_TERMS={
     'Champions League and football':r'champions league|football|soccer|mbapp[eé]|messi|ronaldo|goal|real madrid|barcelona',
     'Viral sports moments':r'\bnba\b|basketball|football|soccer|tennis|athlete|sport|lebron|curry|boxing|ufc',
@@ -23,7 +25,8 @@ CATEGORY_TERMS={
     'Hot interviews':r'interview|podcast|debate|heated',
     'African urban dance':r'african|amapiano|afrobeats|azonto|dance',
     'TikTok dance challenges':r'tiktok|dance challenge',
-    'Movie trailers':r'trailer|teaser', 'Music reactions':r'react|first time hearing'}
+    'Movie trailers':r'trailer|teaser', 'Music reactions':r'react|first time hearing',
+    policy.FOCUS['name']:policy.FOCUS['pattern']}
 
 
 def preferences():
@@ -48,7 +51,7 @@ def keyword_list(value):
 
 def categories_for(item):
     text=(item.get('title','')+' '+item.get('source','')).casefold()
-    found=[name for name,terms in CATEGORY_TERMS.items() if re.search(terms,text)]
+    found=[name for name,terms in CATEGORY_TERMS.items() if re.search(terms,text,re.I)]
     via=item.get('discovered_via','')
     if via in CATEGORY_TERMS and via not in found: found.append(via)
     return found or ([via] if via and not via.startswith('Popular chart:') else ['Other'])
@@ -76,9 +79,10 @@ def filter_ranked(items, prefs=None, now=None):
         source_type=policy.source_type(item)
         if prefs['source_preference']=='Exclude likely official' and source_type.startswith('Likely'): continue
         categories=categories_for(item)
-        if prefs['categories'] and not set(categories).intersection(prefs['categories']) and item.get('discovered_via')!='Your event search': continue
-        row=dict(item,categories=categories,source_type=source_type)
-        row['display_score']=item.get('priority_score',0)+(5 if prefs['source_preference']=='Prefer independent' and source_type.startswith('Unverified') else 0)
+        focus=bool(prefs.get('focus')) and policy.is_focus(item)
+        if prefs['categories'] and not set(categories).intersection(prefs['categories']) and item.get('discovered_via')!='Your event search' and not focus: continue
+        row=dict(item,categories=categories,source_type=source_type,focus=focus)
+        row['display_score']=item.get('priority_score',0)+(5 if prefs['source_preference']=='Prefer independent' and source_type.startswith('Unverified') else 0)+(FOCUS_BOOST if focus else 0)
         result.append(row)
     return sorted(result,key=lambda x:x['display_score'],reverse=True)
 
@@ -259,7 +263,13 @@ def discover_broad():
     event_queries=[x.strip()[:300] for x in prefs['event_queries'].splitlines() if x.strip()]
     if event_queries:
         requests.append(dict(name='Your event search',query=event_queries[int(state.get('event_cursor',0))%len(event_queries)]))
-    topic_budget=min(budget-len(requests),len(topics))
+    if prefs.get('focus'):
+        # Most of the budget goes to the owner's focus; at least one slot keeps rotating topics.
+        queries=policy.FOCUS['queries']; focus_cursor=int(state.get('focus_cursor',0))
+        slots=max(1,budget-len(requests)-1)
+        requests.extend(dict(name=policy.FOCUS['name'],query=queries[(focus_cursor+n)%len(queries)],focus=True) for n in range(slots))
+        state['focus_cursor']=(focus_cursor+slots)%len(queries)
+    topic_budget=max(0,min(budget-len(requests),len(topics)))
     requests.extend(topics[(cursor+offset)%len(topics)] for offset in range(topic_budget))
     for offset,topic in enumerate(requests):
         queried.append(topic['name'])
@@ -278,6 +288,7 @@ def discover_broad():
     rows=sorted(policy.visible_candidates([x for x in found.values() if x['id'] not in hidden and x.get('published','')>=after]),key=lambda x:x.get('published',''),reverse=True)[:1000]
     p.write(old,rows)
     p.write(state_path,{'next_topic':(cursor+topic_budget)%len(topics), 'last_topics':queried,
+                        'focus_cursor':int(state.get('focus_cursor',0)),
                         'event_cursor':int(state.get('event_cursor',0))+1,
                         'last_scan':now.isoformat(),'errors':errors})
     if errors and not rows: raise RuntimeError('Discovery failed. '+' | '.join(errors))
