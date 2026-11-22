@@ -178,3 +178,7 @@ Owner request: focus research on GTA 6 gameplay (people recording themselves pla
 - `tests/test_editorial.py` rotation test now sets `focus=''` so it keeps testing plain topic rotation (focus is a new owner-requested default); focus rotation is covered by the new tests.
 
 Tests: before 91 OK. After: `python -m unittest discover -s tests -v` → 102 OK (Streamlit installed); added `tests/test_autopilot.py` (11 tests). `git diff --check` clean. Real downloads/uploads run on the owner's Mac only; results of the first live run are recorded below when available.
+
+## 2026-11-22 — Claude — first live autopilot run on the owner's Mac
+
+Pulled main (PR #6) on the Mac, kept local config files; 102 tests OK; `app_runtime.py doctor` all OK (ffmpeg-full, Ollama qwen2.5:7b, YouTube auth). Installed `com.viralmomentclips.autopilot` (hourly at :07). First live posts: https://youtu.be/TeeliUCX3Uk (11:00 slot) and https://youtu.be/AYngBpm6ZYM (16:00 slot); third due 20:00; two more GTA 6 clips queued. Observed: one source had no scene passing editorial checks (autopilot moved to the next video, as designed); one upload hit "connection reset" and succeeded on retry. No code changes needed. Open items: the Mac sleeps after 1 minute idle (owner must disable automatic sleep or ticks can be missed); yt-dlp reports no JS runtime, `brew install deno` recommended as a safeguard.
