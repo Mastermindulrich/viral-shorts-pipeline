@@ -334,7 +334,7 @@ with tools:
     import autopilot
     pilot=autopilot.settings(); last=autopilot.status()
     slots=', '.join(f'{h}:00' for h in pilot['slots'])
-    meta(f"Posts at least {pilot['daily_target']} clips a day with no review (due by {slots}, your timezone), plus one extra ready clip per hour between {pilot['extra_start']}:00 and {pilot['extra_end']}:00, favouring GTA 6 gameplay. "
+    meta(f"Posts at least {pilot['daily_target']} clips a day with no review (due by {slots}, your timezone), plus one extra ready clip per hour between {pilot['extra_start']}:00 and {pilot['extra_end']}:00, from what is trending today across news, politics, celebrities, sports, culture and GTA 6. "
          'Checks every hour and retries failures on its own. Clips still waiting in Review are never published by autopilot.')
     if last: meta(f"Last run {last.get('last_run','')[:16].replace('T',' ')} UTC · {last.get('published_today',0)} of {last.get('target',pilot['daily_target'])} posted today · {last.get('ready',0)} ready"
                   +(' · '+last['errors'][-1][:160] if last.get('errors') else ''))

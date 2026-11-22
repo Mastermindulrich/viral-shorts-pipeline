@@ -24,28 +24,50 @@ class FocusTests(unittest.TestCase):
         base=dict(published=(now-dt.timedelta(hours=5)).isoformat(),views=50000,average_views_per_hour=9000,
                   duration_seconds=600,source='Creator')
         items=[dict(base,id='a',title='Champions League goal reaction',priority_score=60),
-               dict(base,id='b',title='GTA 6 police chase gone wrong',priority_score=50,source='Gamer')]
+               dict(base,id='b',title='GTA 6 police chase gone wrong',priority_score=55,source='Gamer')]
         prefs=dict(s.DEFAULTS,categories=['Champions League and football'])
         ranked=s.filter_ranked(items,prefs,now)
         self.assertEqual([x['id'] for x in ranked],['b','a'])
         self.assertTrue(ranked[0]['focus'])
         self.assertEqual([x['id'] for x in s.filter_ranked(items,dict(prefs,focus=''),now)],['a'])
 
-    def test_focus_takes_most_of_the_search_budget(self):
+    def test_scan_mixes_trending_news_one_gta_search_and_topics(self):
         service=MagicMock()
         service.videos.return_value.list.return_value.execute.return_value={'items':[]}
         service.search.return_value.list.return_value.execute.return_value={'items':[]}
         modules={'googleapiclient':types.ModuleType('googleapiclient'),'googleapiclient.discovery':types.SimpleNamespace(build=lambda *a,**k:service)}
+        trends=['Iran ships Strait of Hormuz','swimming world record','Texas jacuzzi']
         with tempfile.TemporaryDirectory() as td, patch.object(p,'ROOT',Path(td)), patch.object(p,'DATA',Path(td)/'data'), \
              patch.object(s,'preferences',return_value=dict(s.DEFAULTS,categories=[])), patch.object(p,'credentials',return_value=None), \
-             patch.dict('sys.modules',modules):
+             patch.object(s,'trending_queries',return_value=trends), patch.dict('sys.modules',modules):
             p.write(Path(td)/'config'/'discovery.json',dict(searches_per_scan=4,regions=['US'],topics=[dict(name='Other',query='other')]))
             first=s.discover_broad(); second=s.discover_broad()
-            self.assertEqual(first['searched_topics'][:3],[policy.FOCUS['name']]*3)
-            self.assertEqual(len(first['searched_topics']),4)
-            queries=[c.kwargs['q'] for c in service.search.return_value.list.call_args_list if 'GTA' in c.kwargs['q']]
-            self.assertEqual(len(set(queries)),6)  # the focus queries rotate between scans
-            self.assertTrue(all('GTA 6' in q for q in queries))
+            self.assertEqual(first['searched_topics'],[s.TRENDING_NAME,s.TRENDING_NAME,policy.FOCUS['name'],'Other'])
+            queries=[c.kwargs['q'] for c in service.search.return_value.list.call_args_list]
+            self.assertEqual(queries[:2],trends[:2])
+            self.assertEqual(queries[4],trends[2])  # trends rotate between scans
+            self.assertNotEqual(queries[2],queries[6])  # GTA queries rotate too
+
+    def test_trending_feed_parsing_and_cache(self):
+        feed=b"""<?xml version="1.0"?><rss xmlns:ht="https://trends.google.com/trending/rss"><channel>
+            <item><title>Iran ships</title><ht:approx_traffic>500K+</ht:approx_traffic></item>
+            <item><title>swimming record</title></item><item><title>iran ships</title></item></channel></rss>"""
+        calls=[]
+        def fetch(url): calls.append(url); return feed
+        with tempfile.TemporaryDirectory() as td, patch.object(p,'DATA',Path(td)):
+            self.assertEqual(s.trending_queries(['US','CA'],fetch),['Iran ships','swimming record'])
+            self.assertEqual(s.trending_queries(['US'],lambda url: (_ for _ in ()).throw(OSError('offline'))),['Iran ships','swimming record'])
+            self.assertEqual(len(calls),2)
+        with tempfile.TemporaryDirectory() as td, patch.object(p,'DATA',Path(td)):
+            self.assertEqual(s.trending_queries(['US'],lambda url: (_ for _ in ()).throw(OSError('offline'))),[])
+
+    def test_trending_finds_pass_category_filter_and_rank_up(self):
+        now=dt.datetime.now(dt.timezone.utc)
+        base=dict(published=(now-dt.timedelta(hours=5)).isoformat(),views=50000,average_views_per_hour=9000,duration_seconds=600,source='Creator')
+        items=[dict(base,id='a',title='Football goal',priority_score=60),
+               dict(base,id='t',title='Ship attack footage',priority_score=55,source='News',discovered_via=s.TRENDING_NAME)]
+        ranked=s.filter_ranked(items,dict(s.DEFAULTS,categories=['Champions League and football']),now)
+        self.assertEqual([x['id'] for x in ranked],['t','a'])
 
 
 class ScheduleTests(unittest.TestCase):
