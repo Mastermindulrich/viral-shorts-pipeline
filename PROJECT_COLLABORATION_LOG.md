@@ -198,3 +198,5 @@ Tests: `python -m unittest discover -s tests -v` → 105 OK (added `test_surplus
 ## 2026-11-22 — Claude — YouTube quota refusals keep the clip
 
 With extra posts on, the default YouTube API quota (~6 uploads/day) will refuse uploads. Before, that left an `uploading` receipt and autopilot skipped the clip permanently. `pipeline.upload` now removes the reservation when YouTube refuses for quota (`quota_refusal`: quotaExceeded, uploadLimitExceeded, "exceeded your quota"; nothing was uploaded) and raises a clear error; `autopilot.publish_due` keeps quota/cap-refused clips for the next tick. Reported by the Mac session. Tests: 107 OK (2 new in `tests/test_autopilot.py`).
+
+CI fix (same day): `test_visual_caption_attempt_uses_only_cut_and_preserves_global_timing` failed in GitHub Actions only. Root cause: `preparation.whisper` cached models by `id(WhisperModel)`; after `test_source_screening`'s fake class was freed, CPython reused its id for the next test's fake class, so the stale (non-English) model was returned. The cache now keys on the class object itself, which keeps it alive. 107 OK locally.
