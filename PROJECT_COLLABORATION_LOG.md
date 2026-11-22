@@ -167,3 +167,14 @@ Owner request: step 1 still fetched unsupported, too-long and still-live videos;
 Tests: before 82 OK (Streamlit installed). After: `python -m unittest discover -s tests -v` → 91 OK; added `tests/test_source_screening.py` (8 tests) and 2 dashboard tests. `git diff --check` clean. Headless-browser screenshots checked. Not verifiable from the cloud: real YouTube downloads (blocked here) and VideoToolbox; both have safe fallbacks.
 
 Next: owner clicks Settings → Update app, then presses Make new clips. If a source still fails, share the tail of `data/logs/activity.log`.
+
+## 2026-11-22 — Claude — GTA 6 discovery focus and unattended daily autopilot
+
+Owner request: focus research on GTA 6 gameplay (people recording themselves playing), and an agent that posts at least 3 clips every day, fixing failures on its own, with no intervention. Branch `claude/project-thread-fothsf`, started from `main` b4490df; edited in place, no other assistant's features or tests removed.
+
+- **GTA 6 focus:** `content_policy.FOCUS` (pattern + 8 rotating gameplay queries) and `is_focus`. `scouting.discover_broad` spends all but one search slot per scan on focus queries (rotating `focus_cursor`); `filter_ranked` lets focus videos through the category filter and adds +25 ranking. Preference `focus` (default on) so existing saved preferences pick it up without a config change (the updater preserves local config files).
+- **Autopilot:** new `autopilot.py`, `autopilot` task and `autopilot-tick` / `install-autopilot` / `uninstall-autopilot` commands in `app_runtime.py`, Settings → Autopilot section in the dashboard. Hourly launchd tick; posts due by 11:00/16:00/20:00 local; prepares more clips when the queue is short; self-heals by starting Ollama, upgrading yt-dlp once a day on extractor failures, retrying transient errors next hour and skipping duplicate-blocked clips. Only publishes its own clips. Descriptions credit the creator and add #GTA6/#Shorts; GTA clips go to YouTube category 20.
+- **Owner rule change:** manual review before publishing is no longer required for autopilot clips (owner: "I do not want to have to intervene in the process anymore"). Dashboard-made clips still wait in Review.
+- `tests/test_editorial.py` rotation test now sets `focus=''` so it keeps testing plain topic rotation (focus is a new owner-requested default); focus rotation is covered by the new tests.
+
+Tests: before 91 OK. After: `python -m unittest discover -s tests -v` → 102 OK (Streamlit installed); added `tests/test_autopilot.py` (11 tests). `git diff --check` clean. Real downloads/uploads run on the owner's Mac only; results of the first live run are recorded below when available.

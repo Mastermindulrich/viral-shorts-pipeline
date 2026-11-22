@@ -123,6 +123,11 @@ def execute(request):
                 stage('Clips are ready to review',100,0)
             elif action=='auto':
                 auto_batch()
+            elif action=='autopilot':
+                import autopilot
+                result=autopilot.run(stage)
+                state=p.read(STATE); state['stage']=(f"Autopilot: {result.get('published_today',0)} of {result.get('target',0)} clips posted today"
+                                                     if result.get('status')!='off' else 'Autopilot is off'); p.write(STATE,state)
             elif action=='visual':
                 import uuid
                 import preparation as prep
@@ -347,9 +352,28 @@ def update():
     state=p.read(STATE); state.update(status='complete',stage='Updated; dashboard restarting'); p.write(STATE,state)
     subprocess.run(['launchctl','kickstart','-k',f'gui/{os.getuid()}/{LABEL}'],check=True)
 
+def autopilot_tick(wait=True, sleep=time.sleep):
+    """Hourly launchd entry point. Skips quietly when autopilot is off or another task is running."""
+    import autopilot
+    if not autopilot.settings()['enabled']: print('Autopilot is off.',flush=True); return 0
+    try: start('autopilot')
+    except RuntimeError as exc:
+        print(f'{dt.datetime.now().isoformat()} autopilot tick skipped: {exc}',flush=True); return 0
+    # Stay alive while the worker runs so launchd keeps the Mac awake (caffeinate) until it finishes.
+    while wait and active().get('status')=='running': sleep(15)
+    state=active()
+    print(f"{dt.datetime.now().isoformat()} autopilot tick {state.get('status')}: {state.get('stage') or ''} {state.get('error') or ''}",flush=True)
+    return 0
+
+
 if __name__=='__main__':
     if sys.argv[1]=='install': install()
     elif sys.argv[1]=='task': execute(sys.argv[2])
+    elif sys.argv[1]=='autopilot-tick': sys.exit(autopilot_tick())
+    elif sys.argv[1]=='install-autopilot':
+        import autopilot; autopilot.install()
+    elif sys.argv[1]=='uninstall-autopilot':
+        import autopilot; autopilot.uninstall()
     elif sys.argv[1]=='doctor':
         checks=readiness(); print(readiness_report(checks))
         sys.exit(any(x['required'] and not x['ok'] for x in checks))
