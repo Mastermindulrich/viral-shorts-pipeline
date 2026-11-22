@@ -170,14 +170,13 @@ def candidates(cfg, stage):
     used=rt.used_sources()
     choices=rt.fresh_choices(scouting,used)
     if not choices:
-        stage('Autopilot: searching for fresh GTA 6 gameplay and other topics')
+        stage('Autopilot: searching for today\'s viral moments')
         result=rt.retry(scouting.discover_broad,'Search')
         for warning in result.get('warnings',[]): print('Discovery warning: '+warning,flush=True)
         ranked=rt.retry(scouting.refresh,'Ranking')
         choices=[x for x in scouting.shortlist(scouting.visible_ranked(ranked)) if x['url'] not in used]
     if cfg['focus_only']: choices=[x for x in choices if x.get('focus')]
-    # Focus videos first, then the rest by score; visible_ranked already sorts by display score.
-    choices=sorted(choices,key=lambda x:not x.get('focus'))
+    # visible_ranked already sorts by display score (trending and GTA get a boost).
     if cfg['focus_only']: return choices
     # Footage of today's biggest news stories (newsdesk) alternates with the usual picks.
     news=news_footage(stage,used)

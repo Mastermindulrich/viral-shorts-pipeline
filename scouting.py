@@ -10,7 +10,10 @@ DEFAULTS=dict(categories=[x['name'] for x in policy.TOPICS],days=3,min_views=500
               min_views_per_hour=200,source_preference='Prefer independent',
               include_keywords='',exclude_keywords='',blocked_channels='',event_queries='',
               focus=policy.FOCUS['name'])
-FOCUS_BOOST=25
+FOCUS_BOOST=8
+TRENDING_BOOST=12
+TRENDING_NAME='Trending today'
+TRENDING_FEED='https://trends.google.com/trending/rss?geo={region}'
 CATEGORY_TERMS={
     'Champions League and football':r'champions league|football|soccer|mbapp[eé]|messi|ronaldo|goal|real madrid|barcelona',
     'Viral sports moments':r'\bnba\b|basketball|football|soccer|tennis|athlete|sport|lebron|curry|boxing|ufc',
@@ -26,7 +29,11 @@ CATEGORY_TERMS={
     'African urban dance':r'african|amapiano|afrobeats|azonto|dance',
     'TikTok dance challenges':r'tiktok|dance challenge',
     'Movie trailers':r'trailer|teaser', 'Music reactions':r'react|first time hearing',
-    policy.FOCUS['name']:policy.FOCUS['pattern']}
+    policy.FOCUS['name']:policy.FOCUS['pattern'],
+    'Breaking news today':r'breaking|news|today|just in|update|announce',
+    'Politics today':r'politic|president|senate|congress|election|minister|parliament|trump|white house|debate',
+    'World news and geopolitics':r'war|iran|israel|russia|ukraine|china|nato|missile|strike|sanction|blockade|ceasefire|geopolit',
+    'Celebrity news':r'celebrity|kardashian|beyonc|taylor swift|drake|rihanna|diddy|met gala|oscars|grammy'}
 
 
 def preferences():
@@ -80,9 +87,10 @@ def filter_ranked(items, prefs=None, now=None):
         if prefs['source_preference']=='Exclude likely official' and source_type.startswith('Likely'): continue
         categories=categories_for(item)
         focus=bool(prefs.get('focus')) and policy.is_focus(item)
-        if prefs['categories'] and not set(categories).intersection(prefs['categories']) and item.get('discovered_via')!='Your event search' and not focus: continue
+        trending=item.get('discovered_via')==TRENDING_NAME
+        if prefs['categories'] and not set(categories).intersection(prefs['categories']) and item.get('discovered_via')!='Your event search' and not focus and not trending: continue
         row=dict(item,categories=categories,source_type=source_type,focus=focus)
-        row['display_score']=item.get('priority_score',0)+(5 if prefs['source_preference']=='Prefer independent' and source_type.startswith('Unverified') else 0)+(FOCUS_BOOST if focus else 0)
+        row['display_score']=item.get('priority_score',0)+(5 if prefs['source_preference']=='Prefer independent' and source_type.startswith('Unverified') else 0)+(FOCUS_BOOST if focus else 0)+(TRENDING_BOOST if trending else 0)
         result.append(row)
     return sorted(result,key=lambda x:x['display_score'],reverse=True)
 
@@ -231,6 +239,36 @@ def refresh():
     return result
 
 
+def trending_queries(regions, fetch=None, now=None):
+    """Today's top searches (Google Trends daily feed), cached for an hour.
+
+    X/Twitter trends need a paid API, so Google's free public feed is the 'what is
+    buzzing right now' signal. Returns [] on any failure; scans then use topics only."""
+    import urllib.request
+    import xml.etree.ElementTree as ET
+    now=now or dt.datetime.now(dt.timezone.utc)
+    cache=p.DATA/'trending.json'
+    try:
+        saved=p.read(cache)
+        if (now-dt.datetime.fromisoformat(saved['fetched_at'])).total_seconds()<3600 and saved.get('queries'):
+            return saved['queries']
+    except Exception: pass
+    fetch=fetch or (lambda url: urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'}),timeout=15).read())
+    found=[]
+    for region in list(regions)[:3]:
+        try:
+            root=ET.fromstring(fetch(TRENDING_FEED.format(region=region)))
+            for item in root.iter('item'):
+                title=(item.findtext('title') or '').strip()
+                if title and title.casefold() not in {x.casefold() for x in found}: found.append(title[:120])
+        except Exception as exc:
+            print(f'Trending feed {region} unavailable: {exc}',flush=True)
+    if found:
+        try: p.write(cache,dict(fetched_at=now.isoformat(),queries=found[:40]))
+        except Exception: pass
+    return found[:40]
+
+
 def discover_broad():
     """Cross-topic public discovery with a bounded, rotating free-quota search budget."""
     from googleapiclient.discovery import build
@@ -263,12 +301,19 @@ def discover_broad():
     event_queries=[x.strip()[:300] for x in prefs['event_queries'].splitlines() if x.strip()]
     if event_queries:
         requests.append(dict(name='Your event search',query=event_queries[int(state.get('event_cursor',0))%len(event_queries)]))
-    if prefs.get('focus'):
-        # Most of the budget goes to the owner's focus; at least one slot keeps rotating topics.
+    if prefs.get('trending',True) and budget-len(requests)>=3:
+        # What people searched most in the last day (Google Trends), searched on YouTube.
+        trends=trending_queries(cfg.get('regions',['US']))
+        if trends:
+            trend_cursor=int(state.get('trend_cursor',0))
+            for n in range(min(2,len(trends))):
+                requests.append(dict(name=TRENDING_NAME,query=trends[(trend_cursor+n)%len(trends)]))
+            state['trend_cursor']=trend_cursor+2
+    if prefs.get('focus') and budget-len(requests)>=2:
+        # One search per scan for the trending game; the rest stays broad.
         queries=policy.FOCUS['queries']; focus_cursor=int(state.get('focus_cursor',0))
-        slots=max(1,budget-len(requests)-1)
-        requests.extend(dict(name=policy.FOCUS['name'],query=queries[(focus_cursor+n)%len(queries)],focus=True) for n in range(slots))
-        state['focus_cursor']=(focus_cursor+slots)%len(queries)
+        requests.append(dict(name=policy.FOCUS['name'],query=queries[focus_cursor%len(queries)],focus=True))
+        state['focus_cursor']=(focus_cursor+1)%len(queries)
     topic_budget=max(0,min(budget-len(requests),len(topics)))
     requests.extend(topics[(cursor+offset)%len(topics)] for offset in range(topic_budget))
     for offset,topic in enumerate(requests):
@@ -288,7 +333,7 @@ def discover_broad():
     rows=sorted(policy.visible_candidates([x for x in found.values() if x['id'] not in hidden and x.get('published','')>=after]),key=lambda x:x.get('published',''),reverse=True)[:1000]
     p.write(old,rows)
     p.write(state_path,{'next_topic':(cursor+topic_budget)%len(topics), 'last_topics':queried,
-                        'focus_cursor':int(state.get('focus_cursor',0)),
+                        'focus_cursor':int(state.get('focus_cursor',0)),'trend_cursor':int(state.get('trend_cursor',0)),
                         'event_cursor':int(state.get('event_cursor',0))+1,
                         'last_scan':now.isoformat(),'errors':errors})
     if errors and not rows: raise RuntimeError('Discovery failed. '+' | '.join(errors))

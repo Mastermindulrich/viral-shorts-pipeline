@@ -201,6 +201,10 @@ With extra posts on, the default YouTube API quota (~6 uploads/day) will refuse 
 
 CI fix (same day): `test_visual_caption_attempt_uses_only_cut_and_preserves_global_timing` failed in GitHub Actions only. Root cause: `preparation.whisper` cached models by `id(WhisperModel)`; after `test_source_screening`'s fake class was freed, CPython reused its id for the next test's fake class, so the stale (non-English) model was returned. The cache now keys on the class object itself, which keeps it alive. 107 OK locally.
 
+## 2026-11-22 — Claude — viral moments across the spectrum, trending searches
+
+Owner: do not limit to GTA 6; post viral moments across news, celebrities, politics, geopolitics, culture, things that made the buzz in the last day or two (X/Twitter mentioned as a source). Changes: `scouting.trending_queries` reads Google Trends daily RSS (free; X API is paid) and 2 of every 4 searches per scan use today's trending searches; GTA 6 drops to 1 search per scan and +8 ranking (was budget-1 and +25); trending finds get +12 and pass category filters; added 4 news/politics/geopolitics/celebrity topics; autopilot no longer forces GTA first. AI news images are handled in a separate thread. Tests: 109 OK (replaced the GTA-budget test with mix, feed-parsing/cache and trending-ranking tests).
+
 ## 2026-11-22 — Claude — news desk: buzz scanner, news footage clips, headline images
 
 Owner request: post viral moments across the spectrum, not only GTA 6 (news, geopolitics, politics, celebrities, culture; X is a good source), plus many headline images a day with clickbait-style design, found by agents scanning the web. Follow-up the same day: do not put an AI disclosure on images, do not turn image cards into Shorts, find footage where applicable and post clips. Branch `claude/project-thread-989esm`, started from PR #7's branch `claude/project-thread-fothsf` (67c36f1) because it extends `autopilot.py`; edited in place, no other assistant's features removed.
