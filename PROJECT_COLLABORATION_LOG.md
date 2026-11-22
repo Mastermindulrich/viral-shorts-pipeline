@@ -204,3 +204,9 @@ CI fix (same day): `test_visual_caption_attempt_uses_only_cut_and_preserves_glob
 ## 2026-11-22 — Claude — viral moments across the spectrum, trending searches
 
 Owner: do not limit to GTA 6; post viral moments across news, celebrities, politics, geopolitics, culture, things that made the buzz in the last day or two (X/Twitter mentioned as a source). Changes: `scouting.trending_queries` reads Google Trends daily RSS (free; X API is paid) and 2 of every 4 searches per scan use today's trending searches; GTA 6 drops to 1 search per scan and +8 ranking (was budget-1 and +25); trending finds get +12 and pass category filters; added 4 news/politics/geopolitics/celebrity topics; autopilot no longer forces GTA first. AI news images are handled in a separate thread. Tests: 109 OK (replaced the GTA-budget test with mix, feed-parsing/cache and trending-ranking tests).
+
+## 2026-11-22 — Claude — clip discovery uses the news desk's buzz terms
+
+The news desk (PR #8, separate thread) writes `data/newsdesk/trending-terms.json` with current X, Google Trends and Reddit terms. `scouting.trending_queries` now lists those terms first (by weight, only when the file is under 6 hours old, via `scouting.newsdesk_terms`), then Google Trends daily searches, deduplicated case-insensitively. Without the news desk file, behaviour is unchanged. Note for PR #8: it branched from 67c36f1, before the discovery-broadening commit a957d82 that is now on main; merge main into it and keep both sides in `scouting.py`, `content_policy.py`, `autopilot.py` and `tests/test_autopilot.py`.
+
+Tests: before 109 OK; after `python -m unittest discover -s tests -v` → 110 OK (added `test_news_desk_terms_lead_trending_queries`).
