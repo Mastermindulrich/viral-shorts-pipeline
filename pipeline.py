@@ -404,13 +404,29 @@ def upload(job):
     request = service.videos().insert(part='snippet,status', body=body,
         media_body=MediaFileUpload(str(dest/'clip.mp4'), mimetype='video/mp4', resumable=True, chunksize=8*1024*1024))
     response = None
-    while response is None:
-        _, response = request.next_chunk(num_retries=5)
+    try:
+        while response is None:
+            _, response = request.next_chunk(num_retries=5)
+    except Exception as exc:
+        if quota_refusal(exc):
+            # YouTube refused before accepting any video bytes, so nothing was uploaded:
+            # release the reservation so the same clip can go out once the quota resets.
+            receipt.unlink(missing_ok=True)
+            raise RuntimeError('YouTube upload quota reached; the clip is kept for later: ' + str(exc)[:300]) from exc
+        raise
     write(receipt, {'state': 'uploaded', 'day': today, 'uploaded_at':dt.datetime.now(dt.timezone.utc).isoformat(),
                     'published_at':response.get('snippet',{}).get('publishedAt'),
                     'video_id': response['id'], 'privacy':status['privacyStatus'], 'job_sha': fingerprint(job),
                     'source_url': job['source_url'], 'start': job['start'], 'end': job['end']})
     print('https://www.youtube.com/watch?v=' + response['id'])
+
+QUOTA_HINTS = ('quotaexceeded', 'exceeded your quota', 'quota exceeded', 'uploadlimitexceeded',
+               'exceeded the number of videos', 'daily upload cap')
+
+
+def quota_refusal(exc):
+    return any(h in str(exc).lower() for h in QUOTA_HINTS)
+
 
 def reconcile_receipts(window_hours=48):
     """Resolve receipts left in 'uploading' by an ambiguous failure, using the channel's own upload list.

@@ -194,3 +194,7 @@ Tests: before 102 OK; after `python -m unittest discover -s tests -v` → 104 OK
 Owner: "you can post as many as you have. do not limit to 3 if you have more." `autopilot.run` now treats `daily_target` as a minimum and, once the due clips are out, posts one extra ready clip per hourly tick between 09:00 and 23:00 local time (`post_extra`, `extra_start`, `extra_end` in `data/autopilot-settings.json`). Dashboard wording updated ("Minimum clips per day"). Noted the YouTube API quota ceiling (~5 uploads/day on the default quota). The Mac's Remote Control session had applied an equivalent local caption fix; the Mac should drop its local edits and pull this branch/main so the updater keeps working.
 
 Tests: `python -m unittest discover -s tests -v` → 105 OK (added `test_surplus_clips_go_out_one_extra_per_tick`; the due-only test now turns `post_extra` off).
+
+## 2026-11-22 — Claude — YouTube quota refusals keep the clip
+
+With extra posts on, the default YouTube API quota (~6 uploads/day) will refuse uploads. Before, that left an `uploading` receipt and autopilot skipped the clip permanently. `pipeline.upload` now removes the reservation when YouTube refuses for quota (`quota_refusal`: quotaExceeded, uploadLimitExceeded, "exceeded your quota"; nothing was uploaded) and raises a clear error; `autopilot.publish_due` keeps quota/cap-refused clips for the next tick. Reported by the Mac session. Tests: 107 OK (2 new in `tests/test_autopilot.py`).

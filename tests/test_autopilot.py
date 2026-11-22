@@ -140,6 +140,33 @@ class RunTests(unittest.TestCase):
         self.assertEqual(ap.ready(),['one'])
         self.assertTrue(ap.status()['errors'])
 
+    def test_youtube_quota_error_keeps_the_clip(self):
+        self.clip('one')
+        evening=dt.datetime.now(dt.timezone.utc).replace(hour=21,minute=0)
+        error=RuntimeError('<HttpError 403 "The request cannot be completed because you have exceeded your quota." reason quotaExceeded>')
+        with patch.object(ap,'publish',side_effect=error), patch.object(ap,'local_now',return_value=evening), \
+             patch.object(ap,'prepare_round',return_value=([],[])):
+            with self.assertRaises(RuntimeError): ap.run()
+        self.assertEqual(ap.ready(),['one'])
+        self.assertEqual(ap.queue()['skipped'],{})
+
+    def test_upload_quota_refusal_releases_the_receipt(self):
+        import pipeline
+        dest=p.DATA/'exports'/'q'
+        job=dict(id='q',title='GTA 6 moment',start=0,end=20,source_url='u',made_for_kids=False,privacy='public')
+        p.write(dest/'job.json',job)
+        request=MagicMock(); request.next_chunk.side_effect=RuntimeError('HttpError 403 quotaExceeded')
+        service=MagicMock(); service.videos.return_value.insert.return_value=request
+        modules={'googleapiclient':types.ModuleType('googleapiclient'),
+                 'googleapiclient.discovery':types.SimpleNamespace(build=lambda *a,**k:service),
+                 'googleapiclient.http':types.SimpleNamespace(MediaFileUpload=lambda *a,**k:None)}
+        with tempfile.TemporaryDirectory() as td, patch.object(p,'ROOT',Path(td)), patch.dict('sys.modules',modules), \
+             patch.object(p,'check_approval'), patch.object(p,'upload_conflicts',return_value=[]), \
+             patch.object(p,'credentials'), patch.object(p,'verify_channel'):
+            p.write(Path(td)/'config'/'settings.json',dict(max_uploads_per_day=20,expected_channel_id='x'))
+            with self.assertRaisesRegex(RuntimeError,'quota'): pipeline.upload(job)
+        self.assertFalse((dest/'upload.json').exists())
+
     def test_off_does_nothing(self):
         ap.save_settings(dict(enabled=False))
         self.assertEqual(ap.run(),dict(status='off'))

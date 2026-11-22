@@ -236,8 +236,9 @@ def publish_due(cfg, today, timezone, local, stage, errors, published, extra=0):
             traceback.print_exc()
             text=str(exc)
             if any(h in text.lower() for h in AUTH_HINTS): raise
-            if 'daily upload cap' in text.lower():
-                errors.append(text); break
+            if p.quota_refusal(exc):
+                # Quota or daily cap: the clip is fine, keep it for the next tick or tomorrow.
+                errors.append(f'{ident}: {text} (kept; will retry later)'); break
             if rt.transient(exc) and not (p.DATA/'exports'/ident/'upload.json').exists():
                 errors.append(f'{ident}: {text} (will retry next hour)'); break
             skip(ident,text); errors.append(f'{ident}: {text}')
