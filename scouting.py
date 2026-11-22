@@ -248,7 +248,9 @@ def newsdesk_terms(now=None, max_age_hours=6):
         saved=p.read(p.DATA/'newsdesk'/'trending-terms.json')
         if (now-dt.datetime.fromisoformat(saved['updated_at'])).total_seconds()>max_age_hours*3600: return []
         terms=sorted(saved.get('terms') or [],key=lambda t:-float(t.get('weight') or 0))
-        return [str(t['term']).strip()[:120] for t in terms if str(t.get('term') or '').strip()]
+        # Reddit entries are whole post titles, too long to work as search queries.
+        return [str(t['term']).strip()[:120] for t in terms
+                if str(t.get('term') or '').strip() and not str(t.get('source') or '').startswith('Reddit')]
     except Exception: return []
 
 

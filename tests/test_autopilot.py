@@ -65,7 +65,8 @@ class FocusTests(unittest.TestCase):
         now=dt.datetime(2026,11,22,20,tzinfo=dt.timezone.utc)
         with tempfile.TemporaryDirectory() as td, patch.object(p,'DATA',Path(td)):
             p.write(Path(td)/'newsdesk'/'trending-terms.json',dict(updated_at=now.isoformat(),
-                    terms=[dict(term='swimming record',source='x',weight=2),dict(term='Strait of Hormuz',source='x',weight=9)]))
+                    terms=[dict(term='swimming record',source='X',weight=2),dict(term='Strait of Hormuz',source='Google Trends',weight=5),
+                          dict(term='Man finds a 40 year old letter in his attic and tracks down the sender',source='Reddit r/news',weight=5)]))
             fetch=lambda url: b'<rss><channel><item><title>Swimming Record</title></item><item><title>Tony Romo</title></item></channel></rss>'
             self.assertEqual(s.trending_queries(['US'],fetch,now),['Strait of Hormuz','swimming record','Tony Romo'])
             # Stale news desk terms are ignored; the Google cache still answers.
