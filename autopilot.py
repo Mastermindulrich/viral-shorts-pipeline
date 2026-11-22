@@ -177,7 +177,31 @@ def candidates(cfg, stage):
         choices=[x for x in scouting.shortlist(scouting.visible_ranked(ranked)) if x['url'] not in used]
     if cfg['focus_only']: choices=[x for x in choices if x.get('focus')]
     # Focus videos first, then the rest by score; visible_ranked already sorts by display score.
-    return sorted(choices,key=lambda x:not x.get('focus'))
+    choices=sorted(choices,key=lambda x:not x.get('focus'))
+    if cfg['focus_only']: return choices
+    # Footage of today's biggest news stories (newsdesk) alternates with the usual picks.
+    news=news_footage(stage,used)
+    picked=[x for x in choices if x['url'] not in {n['url'] for n in news}]
+    mixed=[]
+    for index in range(max(len(news),len(picked))):
+        mixed.extend(x for x in (news[index:index+1]+picked[index:index+1]))
+    return mixed
+
+
+def news_footage(stage, used):
+    """Screened videos of the stories making the buzz right now. Never stops a round when it fails."""
+    try:
+        import newsdesk
+        import scouting
+        if not newsdesk.settings()['enabled']: return []
+        stage('Autopilot: checking the news, Google Trends, X and Reddit for footage of today\'s buzz')
+        added=newsdesk.footage(log=lambda m:print(m,flush=True))
+        ranked=p.read(p.DATA/'ranked-candidates.json') if (p.DATA/'ranked-candidates.json').exists() else []
+        if added: ranked=scouting.refresh()
+        return newsdesk.footage_candidates(scouting.visible_ranked(ranked),used)
+    except Exception as exc:
+        print(f'News footage skipped: {str(exc)[:200]}',flush=True)
+        return []
 
 
 def prepare_round(cfg, stage):
@@ -205,6 +229,19 @@ def prepare_round(cfg, stage):
         try: scouting.hide_video(item)
         except Exception: pass
     return [],errors
+
+
+def news_images(stage):
+    """Headline images for today's buzz (newsdesk). Failures are logged and never block clips."""
+    try:
+        import newsdesk
+        cfg=newsdesk.settings()
+        if not (cfg['enabled'] and cfg['images_per_day']): return []
+        # Spread over the day: at most two new images per hourly tick.
+        return newsdesk.make_images(min(2,max(0,cfg['images_per_day']-newsdesk.images_made_today(local_now().date()))),cfg,stage)
+    except Exception as exc:
+        print(f'News images skipped: {str(exc)[:200]}',flush=True)
+        return []
 
 
 def notify(message):
@@ -266,6 +303,7 @@ def run(stage=print, now=None):
                 break
             done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
         done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
+        news_images(stage)
         if extra_allowed(local,cfg) and not errors:
             # Surplus clips: one extra post per hourly tick so the day's posts stay spread out.
             done,due=publish_due(cfg,today,timezone,local,stage,errors,published,extra=1)

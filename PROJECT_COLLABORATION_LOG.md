@@ -200,3 +200,16 @@ Tests: `python -m unittest discover -s tests -v` → 105 OK (added `test_surplus
 With extra posts on, the default YouTube API quota (~6 uploads/day) will refuse uploads. Before, that left an `uploading` receipt and autopilot skipped the clip permanently. `pipeline.upload` now removes the reservation when YouTube refuses for quota (`quota_refusal`: quotaExceeded, uploadLimitExceeded, "exceeded your quota"; nothing was uploaded) and raises a clear error; `autopilot.publish_due` keeps quota/cap-refused clips for the next tick. Reported by the Mac session. Tests: 107 OK (2 new in `tests/test_autopilot.py`).
 
 CI fix (same day): `test_visual_caption_attempt_uses_only_cut_and_preserves_global_timing` failed in GitHub Actions only. Root cause: `preparation.whisper` cached models by `id(WhisperModel)`; after `test_source_screening`'s fake class was freed, CPython reused its id for the next test's fake class, so the stale (non-English) model was returned. The cache now keys on the class object itself, which keeps it alive. 107 OK locally.
+
+## 2026-11-22 — Claude — news desk: buzz scanner, news footage clips, headline images
+
+Owner request: post viral moments across the spectrum, not only GTA 6 (news, geopolitics, politics, celebrities, culture; X is a good source), plus many headline images a day with clickbait-style design, found by agents scanning the web. Follow-up the same day: do not put an AI disclosure on images, do not turn image cards into Shorts, find footage where applicable and post clips. Branch `claude/project-thread-989esm`, started from PR #7's branch `claude/project-thread-fothsf` (67c36f1) because it extends `autopilot.py`; edited in place, no other assistant's features removed.
+
+- New `newsdesk.py`: feeds + buzz scan, cross-outlet clustering and ranking, accuracy rule (two outlets or one major outlet; buzz only boosts), sensitive-story skip, grounded headline writing with outlet-headline fallback, yt-dlp footage search, headline image cards (1080×1350, stylised illustration via local Ollama `x/z-image-turbo` or gradient fallback).
+- `autopilot.py`: `candidates()` alternates news footage with its usual picks (not when "Only GTA 6"); `news_footage()` and `news_images()` never block clip posting.
+- Dashboard Settings → News desk (on/off, footage clips, images per day, last three images). `requirements.txt` adds Pillow.
+- Decision: the owner asked for no AI label. Images are kept as clearly stylised illustrations (never photorealistic, never real people) so they cannot be mistaken for real photos of news events; video uploads are unaffected (no AI imagery in clips).
+- Broadening video-clip topics beyond GTA 6 is coordinated with the autopilot thread; the news desk writes `data/newsdesk/trending-terms.json` for discovery to use.
+- `tests/test_autopilot.py` RunTests now patch the two news hooks (they read the web); the hooks are covered in the new tests.
+
+Tests: before 107 OK (3 skipped without Streamlit). After: `python -m unittest discover -s tests -v` → 124 OK with Streamlit installed; added `tests/test_newsdesk.py` (17 tests). Feeds cannot be reached from the cloud container; the X trends parser was checked against the live trends24.in page. Open: where images get posted (owner's choice).

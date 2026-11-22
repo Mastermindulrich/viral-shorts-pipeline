@@ -346,6 +346,22 @@ with tools:
             try: autopilot.save_settings(dict(enabled=enabled,daily_target=int(target),focus_only=focus_only)); st.rerun()
             except Exception as exc: show_problem(exc)
     if st.button('Run autopilot now',disabled=busy): launch('autopilot')
+    st.markdown('### News desk')
+    import newsdesk
+    desk=newsdesk.settings()
+    meta('Every autopilot run reads Google News, major outlets, Google Trends, X trends and Reddit, finds YouTube footage of the '
+         'stories everyone is talking about and cuts clips from it. It also makes bold headline images (saved, not posted as Shorts). '
+         'A story is only used when real outlets reported it; headlines never add facts the reports do not contain.')
+    with st.form('newsdesk'):
+        desk_on=st.toggle('News desk on',value=bool(desk['enabled']))
+        desk_footage=st.toggle('Make clips from news footage',value=bool(desk['footage']))
+        desk_images=st.number_input('Headline images per day',min_value=0,max_value=30,value=int(desk['images_per_day']))
+        if st.form_submit_button('Save news desk',disabled=busy):
+            try: newsdesk.save_settings(dict(enabled=desk_on,footage=desk_footage,images_per_day=int(desk_images))); st.rerun()
+            except Exception as exc: show_problem(exc)
+    latest=sorted((newsdesk.folder()/'images').glob('*/*.jpg'))[-3:] if (newsdesk.folder()/'images').exists() else []
+    if latest:
+        for column,path in zip(st.columns(3),reversed(latest)): column.image(str(path))
     st.markdown('### Preferences')
     with st.form('preferences'):
         capability=p.caption_capability()
