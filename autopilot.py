@@ -23,7 +23,10 @@ SETTINGS=p.DATA/'autopilot-settings.json'
 STATE=p.DATA/'autopilot.json'
 QUEUE=p.DATA/'autopilot-queue.json'
 LABEL='com.viralmomentclips.autopilot'
-DEFAULTS=dict(enabled=True,daily_target=3,slots=[11,16,20],max_rounds=3,focus_only=False)
+# daily_target is a minimum (owner 2026-11-22: "post as many as you have"). Extra ready clips go out
+# one per hourly tick between extra_start and extra_end local time, so they are spread over the day.
+DEFAULTS=dict(enabled=True,daily_target=3,slots=[11,16,20],max_rounds=3,focus_only=False,
+              post_extra=True,extra_start=9,extra_end=23)
 AUTH_HINTS=('authorization expired','run auth','invalid_grant','reauthorize','token has been expired','refresh_token')
 YTDLP_HINTS=('unable to extract','nsig','signature','http error 403','sign in to confirm','failed to extract','player response')
 
@@ -212,13 +215,19 @@ def notify(message):
     except (OSError,subprocess.SubprocessError): pass
 
 
-def publish_due(cfg, today, timezone, local, stage, errors, published):
+def extra_allowed(local, cfg):
+    return bool(cfg.get('post_extra')) and int(cfg.get('extra_start',9))<=local.hour<=int(cfg.get('extra_end',23))
+
+
+def publish_due(cfg, today, timezone, local, stage, errors, published, extra=0):
+    """Publish what is due by now, plus `extra` more ready clips beyond the schedule."""
     import app_runtime as rt
     done=published_on(today,timezone)
     due=due_by(local,cfg)
+    limit=max(due,done+extra)
     for ident in ready():
-        if done>=due: break
-        stage(f'Autopilot: publishing clip {done+1} of {cfg["daily_target"]} for today',90)
+        if done>=limit: break
+        stage(f'Autopilot: publishing clip {done+1} for today (minimum {cfg["daily_target"]})',90)
         try:
             video=publish(ident); done+=1
             published.append(dict(id=ident,video_id=video))
@@ -256,6 +265,9 @@ def run(stage=print, now=None):
                 break
             done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
         done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
+        if extra_allowed(local,cfg) and not errors:
+            # Surplus clips: one extra post per hourly tick so the day's posts stay spread out.
+            done,due=publish_due(cfg,today,timezone,local,stage,errors,published,extra=1)
     except Exception as exc:
         text=str(exc)
         record=dict(last_run=dt.datetime.now(dt.timezone.utc).isoformat(),day=today.isoformat(),

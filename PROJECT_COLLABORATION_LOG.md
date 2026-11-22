@@ -188,3 +188,9 @@ Pulled main (PR #6) on the Mac, kept local config files; 102 tests OK; `app_runt
 Owner: "the most common failure is related to captions. make it that clips will advance even when caption generation fails. you can post without captions." `pipeline.render` no longer raises on caption problems: missing libass, unreadable caption transcript, no overlapping text, or an FFmpeg failure in the subtitle filter (retried without it) now render the clip without burned-in subtitles, record the reason in `caption_status`, drop `transcript` and keep `data/jobs/<id>.json` in sync. Approval and upload are unchanged. Replaced the old fail-early test (`test_caption_capability_and_early_failure`'s libass assertion, a rule the owner changed) with `test_caption_problems_never_stop_a_clip` and `test_failed_subtitle_burn_retries_without_subtitles`.
 
 Tests: before 102 OK; after `python -m unittest discover -s tests -v` → 104 OK.
+
+## 2026-11-22 — Claude — autopilot posts every ready clip
+
+Owner: "you can post as many as you have. do not limit to 3 if you have more." `autopilot.run` now treats `daily_target` as a minimum and, once the due clips are out, posts one extra ready clip per hourly tick between 09:00 and 23:00 local time (`post_extra`, `extra_start`, `extra_end` in `data/autopilot-settings.json`). Dashboard wording updated ("Minimum clips per day"). Noted the YouTube API quota ceiling (~5 uploads/day on the default quota). The Mac's Remote Control session had applied an equivalent local caption fix; the Mac should drop its local edits and pull this branch/main so the updater keeps working.
+
+Tests: `python -m unittest discover -s tests -v` → 105 OK (added `test_surplus_clips_go_out_one_extra_per_tick`; the due-only test now turns `post_extra` off).

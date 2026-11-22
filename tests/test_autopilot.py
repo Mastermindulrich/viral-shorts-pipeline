@@ -91,10 +91,27 @@ class RunTests(unittest.TestCase):
         noon=dt.datetime.now(dt.timezone.utc).replace(hour=17,minute=0)
         with patch.object(ap,'publish',side_effect=self.fake_publish), patch.object(ap,'local_now',return_value=noon), \
              patch.object(ap,'prepare_round',return_value=([],[])) as prepare:
+            ap.save_settings(dict(post_extra=False))
             result=ap.run()
         self.assertEqual(self.uploaded,['one','two'])
         self.assertEqual(result['published_today'],2)
         prepare.assert_not_called()  # one clip is still ready for the evening slot
+
+    def test_surplus_clips_go_out_one_extra_per_tick(self):
+        for name in ('one','two','three','four'): self.clip(name)
+        afternoon=dt.datetime.now(dt.timezone.utc).replace(hour=17,minute=0)
+        with patch.object(ap,'publish',side_effect=self.fake_publish), patch.object(ap,'local_now',return_value=afternoon), \
+             patch.object(ap,'prepare_round',return_value=([],[])):
+            ap.run()
+            self.assertEqual(self.uploaded,['one','two','three'])  # 2 due + 1 extra
+            ap.run()
+            self.assertEqual(self.uploaded,['one','two','three','four'])  # next tick: another extra
+        night=afternoon.replace(hour=3)
+        self.clip('five')
+        with patch.object(ap,'publish',side_effect=self.fake_publish), patch.object(ap,'local_now',return_value=night), \
+             patch.object(ap,'prepare_round',return_value=([],[])):
+            ap.run()
+        self.assertNotIn('five',self.uploaded)  # no extras overnight
 
     def test_short_queue_prepares_more_and_failed_clip_is_skipped(self):
         self.clip('dup')
