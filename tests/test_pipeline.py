@@ -67,11 +67,43 @@ class PipelineTests(unittest.TestCase):
         with patch.object(p.subprocess,'run',return_value=subprocess.CompletedProcess([],0,
                 stdout=' ... scale V->V Scale video\n',stderr='')):
             self.assertFalse(p.caption_capability()['supported'])
-        with patch.object(p,'caption_capability',return_value={'supported':False,'reason':'subtitles/libass missing'}), \
-             patch.object(p,'material') as material:
-            with self.assertRaisesRegex(ValueError,'subtitles/libass'):
-                p.render(dict(self.job,transcript='unused.json'))
-            material.assert_not_called()
+
+    def make_source(self):
+        subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i','color=c=black:s=320x180:r=30',
+                        '-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','2',
+                        '-c:v','libx264','-c:a','aac',self.job['input']],check=True)
+
+    def test_caption_problems_never_stop_a_clip(self):
+        # Owner decision 2026-11-22: a caption failure drops subtitles; the clip still renders.
+        self.make_source()
+        transcript=self.root/'transcript.json'
+        p.write(transcript,[dict(start=0,end=1,text='Test caption')])
+        cases=[('missing libass',dict(transcript=str(transcript)),{'supported':False,'reason':'subtitles/libass missing'}),
+               ('unreadable transcript',dict(transcript=str(self.root/'missing.json')),{'supported':True,'reason':''}),
+               ('no overlapping text',dict(transcript=str(transcript),start=1.0,end=2.0),{'supported':True,'reason':''})]
+        for name,extra,capability in cases:
+            with self.subTest(name), patch.object(p,'caption_capability',return_value=capability):
+                job=dict(self.job,**extra)
+                p.render(job)
+                self.assertTrue((p.output(job)/'clip.mp4').is_file())
+                self.assertNotIn('transcript',job)
+                self.assertIn('without burned-in subtitles',job['caption_status'])
+                self.assertEqual(p.read(p.output(job)/'job.json'),job)
+
+    def test_failed_subtitle_burn_retries_without_subtitles(self):
+        self.make_source()
+        transcript=self.root/'transcript.json'
+        p.write(transcript,[dict(start=0,end=1,text='Test caption')])
+        real=p.run
+        def run(args,**kwargs):
+            if any('subtitles=' in str(a) for a in args): raise subprocess.CalledProcessError(1,args)
+            return real(args,**kwargs)
+        job=dict(self.job,transcript=str(transcript))
+        with patch.object(p,'caption_capability',return_value={'supported':True,'reason':''}), patch.object(p,'run',side_effect=run):
+            p.render(job)
+        self.assertTrue((p.output(job)/'clip.mp4').is_file())
+        self.assertIn('could not burn',job['caption_status'])
+        self.assertTrue((p.output(job)/'captions.srt').exists())
 
     def test_channel_guard(self):
         service = MagicMock()

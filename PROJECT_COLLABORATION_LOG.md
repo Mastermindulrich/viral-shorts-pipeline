@@ -182,3 +182,9 @@ Tests: before 91 OK. After: `python -m unittest discover -s tests -v` → 102 OK
 ## 2026-11-22 — Claude — first live autopilot run on the owner's Mac
 
 Pulled main (PR #6) on the Mac, kept local config files; 102 tests OK; `app_runtime.py doctor` all OK (ffmpeg-full, Ollama qwen2.5:7b, YouTube auth). Installed `com.viralmomentclips.autopilot` (hourly at :07). First live posts: https://youtu.be/TeeliUCX3Uk (11:00 slot) and https://youtu.be/AYngBpm6ZYM (16:00 slot); third due 20:00; two more GTA 6 clips queued. Observed: one source had no scene passing editorial checks (autopilot moved to the next video, as designed); one upload hit "connection reset" and succeeded on retry. No code changes needed. Open items: the Mac sleeps after 1 minute idle (owner must disable automatic sleep or ticks can be missed); yt-dlp reports no JS runtime, `brew install deno` recommended as a safeguard.
+
+## 2026-11-22 — Claude — captions can no longer stop a clip
+
+Owner: "the most common failure is related to captions. make it that clips will advance even when caption generation fails. you can post without captions." `pipeline.render` no longer raises on caption problems: missing libass, unreadable caption transcript, no overlapping text, or an FFmpeg failure in the subtitle filter (retried without it) now render the clip without burned-in subtitles, record the reason in `caption_status`, drop `transcript` and keep `data/jobs/<id>.json` in sync. Approval and upload are unchanged. Replaced the old fail-early test (`test_caption_capability_and_early_failure`'s libass assertion, a rule the owner changed) with `test_caption_problems_never_stop_a_clip` and `test_failed_subtitle_burn_retries_without_subtitles`.
+
+Tests: before 102 OK; after `python -m unittest discover -s tests -v` → 104 OK.
