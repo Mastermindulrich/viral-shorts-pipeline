@@ -142,7 +142,8 @@ def whisper(model):
     """One loaded speech model per process, using every CPU core."""
     import os
     from faster_whisper import WhisperModel
-    key=(model,id(WhisperModel))
+    # Key on the class itself (not id()): a freed id can be reused, which returned a stale model in tests.
+    key=(model,WhisperModel)
     if key not in _MODELS:
         _MODELS[key]=WhisperModel(model,device='cpu',compute_type='int8',cpu_threads=os.cpu_count() or 4)
     return _MODELS[key]

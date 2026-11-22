@@ -10,9 +10,10 @@ MAX_CLIP_SECONDS=180
 # that the download step will refuse.
 MAX_SOURCE_SECONDS=20*60
 MIN_SOURCE_SECONDS=30
-# Owner focus (2026-11-22): GTA 6 is out and creators are posting lots of
-# self-recorded gameplay. Focus searches take most of each scan's search budget
-# and matching videos rank first; other topics still rotate in the remaining slot.
+# Owner focus (2026-11-22): GTA 6 is trending, so it keeps one search per scan and a
+# small ranking boost. Later the same day the owner widened the channel back to viral
+# moments across the spectrum (news, politics, geopolitics, celebrities, culture), so
+# GTA no longer dominates; see scouting.trending_queries for the "what is buzzing today" source.
 FOCUS={'name':'GTA 6 gameplay',
        'pattern':r'\bgta\s*-?\s*(6|vi)\b|\bgta6\b|grand\s+theft\s+auto\s*(6|vi)\b',
        'queries':['"GTA 6" gameplay funny moments','"GTA 6" gameplay first time playing reaction',
@@ -40,7 +41,11 @@ TOPICS=[
     {'name':'African urban dance','query':'African urban dance amapiano afrobeats azonto dance'},
     {'name':'TikTok dance challenges','query':'TikTok viral dance challenge'},
     {'name':'Movie trailers','query':'official movie trailer teaser'},
-    {'name':'Music reactions','query':'music video reaction first time hearing'}]
+    {'name':'Music reactions','query':'music video reaction first time hearing'},
+    {'name':'Breaking news today','query':'breaking news today what happened reaction'},
+    {'name':'Politics today','query':'politics news today speech debate moment'},
+    {'name':'World news and geopolitics','query':'world news today geopolitics conflict announcement'},
+    {'name':'Celebrity news','query':'celebrity news today viral moment interview'}]
 
 def discovery_config(config):
     """Overlay policy on old local configs, which the updater deliberately preserves."""

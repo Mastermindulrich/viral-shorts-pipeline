@@ -334,13 +334,13 @@ with tools:
     import autopilot
     pilot=autopilot.settings(); last=autopilot.status()
     slots=', '.join(f'{h}:00' for h in pilot['slots'])
-    meta(f"Posts {pilot['daily_target']} clips a day with no review (due by {slots}, your timezone), favouring GTA 6 gameplay. "
+    meta(f"Posts at least {pilot['daily_target']} clips a day with no review (due by {slots}, your timezone), plus one extra ready clip per hour between {pilot['extra_start']}:00 and {pilot['extra_end']}:00, from what is trending today across news, politics, celebrities, sports, culture and GTA 6. "
          'Checks every hour and retries failures on its own. Clips still waiting in Review are never published by autopilot.')
     if last: meta(f"Last run {last.get('last_run','')[:16].replace('T',' ')} UTC · {last.get('published_today',0)} of {last.get('target',pilot['daily_target'])} posted today · {last.get('ready',0)} ready"
                   +(' · '+last['errors'][-1][:160] if last.get('errors') else ''))
     with st.form('autopilot'):
         enabled=st.toggle('Autopilot on',value=bool(pilot['enabled']))
-        target=st.number_input('Clips per day',min_value=1,max_value=10,value=int(pilot['daily_target']))
+        target=st.number_input('Minimum clips per day',min_value=1,max_value=10,value=int(pilot['daily_target']))
         focus_only=st.toggle('Only GTA 6 videos',value=bool(pilot['focus_only']))
         if st.form_submit_button('Save autopilot',disabled=busy):
             try: autopilot.save_settings(dict(enabled=enabled,daily_target=int(target),focus_only=focus_only)); st.rerun()

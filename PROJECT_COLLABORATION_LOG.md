@@ -178,3 +178,29 @@ Owner request: focus research on GTA 6 gameplay (people recording themselves pla
 - `tests/test_editorial.py` rotation test now sets `focus=''` so it keeps testing plain topic rotation (focus is a new owner-requested default); focus rotation is covered by the new tests.
 
 Tests: before 91 OK. After: `python -m unittest discover -s tests -v` → 102 OK (Streamlit installed); added `tests/test_autopilot.py` (11 tests). `git diff --check` clean. Real downloads/uploads run on the owner's Mac only; results of the first live run are recorded below when available.
+
+## 2026-11-22 — Claude — first live autopilot run on the owner's Mac
+
+Pulled main (PR #6) on the Mac, kept local config files; 102 tests OK; `app_runtime.py doctor` all OK (ffmpeg-full, Ollama qwen2.5:7b, YouTube auth). Installed `com.viralmomentclips.autopilot` (hourly at :07). First live posts: https://youtu.be/TeeliUCX3Uk (11:00 slot) and https://youtu.be/AYngBpm6ZYM (16:00 slot); third due 20:00; two more GTA 6 clips queued. Observed: one source had no scene passing editorial checks (autopilot moved to the next video, as designed); one upload hit "connection reset" and succeeded on retry. No code changes needed. Open items: the Mac sleeps after 1 minute idle (owner must disable automatic sleep or ticks can be missed); yt-dlp reports no JS runtime, `brew install deno` recommended as a safeguard.
+
+## 2026-11-22 — Claude — captions can no longer stop a clip
+
+Owner: "the most common failure is related to captions. make it that clips will advance even when caption generation fails. you can post without captions." `pipeline.render` no longer raises on caption problems: missing libass, unreadable caption transcript, no overlapping text, or an FFmpeg failure in the subtitle filter (retried without it) now render the clip without burned-in subtitles, record the reason in `caption_status`, drop `transcript` and keep `data/jobs/<id>.json` in sync. Approval and upload are unchanged. Replaced the old fail-early test (`test_caption_capability_and_early_failure`'s libass assertion, a rule the owner changed) with `test_caption_problems_never_stop_a_clip` and `test_failed_subtitle_burn_retries_without_subtitles`.
+
+Tests: before 102 OK; after `python -m unittest discover -s tests -v` → 104 OK.
+
+## 2026-11-22 — Claude — autopilot posts every ready clip
+
+Owner: "you can post as many as you have. do not limit to 3 if you have more." `autopilot.run` now treats `daily_target` as a minimum and, once the due clips are out, posts one extra ready clip per hourly tick between 09:00 and 23:00 local time (`post_extra`, `extra_start`, `extra_end` in `data/autopilot-settings.json`). Dashboard wording updated ("Minimum clips per day"). Noted the YouTube API quota ceiling (~5 uploads/day on the default quota). The Mac's Remote Control session had applied an equivalent local caption fix; the Mac should drop its local edits and pull this branch/main so the updater keeps working.
+
+Tests: `python -m unittest discover -s tests -v` → 105 OK (added `test_surplus_clips_go_out_one_extra_per_tick`; the due-only test now turns `post_extra` off).
+
+## 2026-11-22 — Claude — YouTube quota refusals keep the clip
+
+With extra posts on, the default YouTube API quota (~6 uploads/day) will refuse uploads. Before, that left an `uploading` receipt and autopilot skipped the clip permanently. `pipeline.upload` now removes the reservation when YouTube refuses for quota (`quota_refusal`: quotaExceeded, uploadLimitExceeded, "exceeded your quota"; nothing was uploaded) and raises a clear error; `autopilot.publish_due` keeps quota/cap-refused clips for the next tick. Reported by the Mac session. Tests: 107 OK (2 new in `tests/test_autopilot.py`).
+
+CI fix (same day): `test_visual_caption_attempt_uses_only_cut_and_preserves_global_timing` failed in GitHub Actions only. Root cause: `preparation.whisper` cached models by `id(WhisperModel)`; after `test_source_screening`'s fake class was freed, CPython reused its id for the next test's fake class, so the stale (non-English) model was returned. The cache now keys on the class object itself, which keeps it alive. 107 OK locally.
+
+## 2026-11-22 — Claude — viral moments across the spectrum, trending searches
+
+Owner: do not limit to GTA 6; post viral moments across news, celebrities, politics, geopolitics, culture, things that made the buzz in the last day or two (X/Twitter mentioned as a source). Changes: `scouting.trending_queries` reads Google Trends daily RSS (free; X API is paid) and 2 of every 4 searches per scan use today's trending searches; GTA 6 drops to 1 search per scan and +8 ranking (was budget-1 and +25); trending finds get +12 and pass category filters; added 4 news/politics/geopolitics/celebrity topics; autopilot no longer forces GTA first. AI news images are handled in a separate thread. Tests: 109 OK (replaced the GTA-budget test with mix, feed-parsing/cache and trending-ranking tests).

@@ -146,7 +146,6 @@ def subtitles(segments, start, end):
 
 def render(job):
     validate(job)
-    if job.get('transcript'): require_captions()
     src = material(job)
     meta = probe(src)
     duration = float(meta['format']['duration'])
@@ -162,24 +161,46 @@ def render(job):
         vf = 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1'
     else:
         vf = 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,setsar=1'
+    # Captions are optional (owner decision 2026-11-22): any caption problem drops the
+    # subtitles and the clip still renders, so a batch never stops on captions.
     caption_source=job.get('transcript') or job.get('caption_source')
+    burn = bool(job.get('transcript'))
+    skipped = None
+    if burn and not caption_capability()['supported']:
+        burn, skipped = False, 'FFmpeg cannot burn subtitles (libass missing)'
+    (dest / 'captions.srt').unlink(missing_ok=True)
     if caption_source:
-        srt = subtitles(read(caption_source), job['start'], job['end'])
-        if not srt:
-            raise ValueError('No transcript text overlaps this clip')
-        (dest / 'captions.srt').write_text(srt)
-        if job.get('transcript'):
-            vf += ",subtitles=filename=captions.srt:force_style='FontName=Arial,FontSize=18,Bold=1,Outline=2,MarginV=55'"
+        try:
+            srt = subtitles(read(caption_source), job['start'], job['end'])
+        except Exception as exc:
+            srt, skipped = '', f'caption text could not be read ({str(exc)[:120]})'
+        if srt: (dest / 'captions.srt').write_text(srt)
+        else:
+            burn = False
+            skipped = skipped or 'no transcript text overlaps this clip'
     tmp = dest / 'clip.partial.mp4'
-    base = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(job['start']), '-i', str(src),
-            '-t', str(job['end']-job['start']), '-map', '0:v:0', '-map', '0:a:0', '-vf', vf, '-r', '30']
-    tail = ['-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', str(tmp.resolve())]
-    software = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22']
-    if hardware_encoder():
-        # The Mac's media engine encodes several times faster than libx264; fall back if it refuses.
-        try: run(base + ['-c:v', 'h264_videotoolbox', '-b:v', '8M', '-maxrate', '12M', '-bufsize', '16M'] + tail, cwd=dest)
-        except subprocess.CalledProcessError: run(base + software + tail, cwd=dest)
-    else: run(base + software + tail, cwd=dest)
+    def encode(filters):
+        base = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(job['start']), '-i', str(src),
+                '-t', str(job['end']-job['start']), '-map', '0:v:0', '-map', '0:a:0', '-vf', filters, '-r', '30']
+        tail = ['-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', str(tmp.resolve())]
+        software = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22']
+        if hardware_encoder():
+            # The Mac's media engine encodes several times faster than libx264; fall back if it refuses.
+            try: return run(base + ['-c:v', 'h264_videotoolbox', '-b:v', '8M', '-maxrate', '12M', '-bufsize', '16M'] + tail, cwd=dest)
+            except subprocess.CalledProcessError: pass
+        run(base + software + tail, cwd=dest)
+    if burn:
+        try:
+            encode(vf + ",subtitles=filename=captions.srt:force_style='FontName=Arial,FontSize=18,Bold=1,Outline=2,MarginV=55'")
+        except subprocess.CalledProcessError as exc:
+            burn, skipped = False, 'FFmpeg could not burn the subtitles in'
+            print(f'Subtitles skipped for {job["id"]}: {exc}', flush=True)
+    if not burn: encode(vf)
+    if skipped:
+        job.pop('transcript', None)
+        job['caption_status'] = 'Posted without burned-in subtitles: ' + skipped
+        print(f'{job["id"]}: {job["caption_status"]}', flush=True)
+        if (DATA/'jobs'/(job['id']+'.json')).exists(): write(DATA/'jobs'/(job['id']+'.json'), job)
     validate_export_duration(tmp)
     tmp.replace(dest / 'clip.mp4')
     run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str((dest/'clip.mp4').resolve()),
@@ -383,13 +404,29 @@ def upload(job):
     request = service.videos().insert(part='snippet,status', body=body,
         media_body=MediaFileUpload(str(dest/'clip.mp4'), mimetype='video/mp4', resumable=True, chunksize=8*1024*1024))
     response = None
-    while response is None:
-        _, response = request.next_chunk(num_retries=5)
+    try:
+        while response is None:
+            _, response = request.next_chunk(num_retries=5)
+    except Exception as exc:
+        if quota_refusal(exc):
+            # YouTube refused before accepting any video bytes, so nothing was uploaded:
+            # release the reservation so the same clip can go out once the quota resets.
+            receipt.unlink(missing_ok=True)
+            raise RuntimeError('YouTube upload quota reached; the clip is kept for later: ' + str(exc)[:300]) from exc
+        raise
     write(receipt, {'state': 'uploaded', 'day': today, 'uploaded_at':dt.datetime.now(dt.timezone.utc).isoformat(),
                     'published_at':response.get('snippet',{}).get('publishedAt'),
                     'video_id': response['id'], 'privacy':status['privacyStatus'], 'job_sha': fingerprint(job),
                     'source_url': job['source_url'], 'start': job['start'], 'end': job['end']})
     print('https://www.youtube.com/watch?v=' + response['id'])
+
+QUOTA_HINTS = ('quotaexceeded', 'exceeded your quota', 'quota exceeded', 'uploadlimitexceeded',
+               'exceeded the number of videos', 'daily upload cap')
+
+
+def quota_refusal(exc):
+    return any(h in str(exc).lower() for h in QUOTA_HINTS)
+
 
 def reconcile_receipts(window_hours=48):
     """Resolve receipts left in 'uploading' by an ambiguous failure, using the channel's own upload list.
