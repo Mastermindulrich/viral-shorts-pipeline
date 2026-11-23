@@ -243,6 +243,36 @@ def news_images(stage):
         return []
 
 
+def community_posts(local):
+    """Post one pending headline image to the channel's Posts tab per tick (9:00-23:00). Never blocks clips."""
+    try:
+        import newsdesk
+        if not newsdesk.settings()['enabled'] or not 9<=local.hour<=23: return []
+        import community
+        if not community.pending(): return []
+        try: import playwright  # noqa: F401
+        except ImportError:
+            subprocess.run([sys.executable,'-m','pip','install','-q','playwright'],capture_output=True,timeout=900)
+        try: return community.post_next(1)
+        except Exception as exc:
+            if 'Executable' in str(exc) or 'playwright install' in str(exc):
+                # Neither Google Chrome nor Playwright's Chromium is installed yet: fetch Chromium once.
+                subprocess.run([sys.executable,'-m','playwright','install','chromium'],capture_output=True,timeout=1800)
+                return community.post_next(1)
+            raise
+    except PermissionError as exc:
+        print(f'Community posts paused: {exc}',flush=True)
+        marker=p.DATA/'newsdesk'/'community-signin-notice.txt'
+        today=dt.date.today().isoformat()
+        if not (marker.exists() and marker.read_text().strip()==today):
+            marker.parent.mkdir(parents=True,exist_ok=True); marker.write_text(today)
+            notify('Sign in once so images can post: .venv/bin/python community.py login')
+        return []
+    except Exception as exc:
+        print(f'Community posts skipped: {str(exc)[:200]}',flush=True)
+        return []
+
+
 def notify(message):
     """A macOS notification; never required for the run to succeed."""
     if sys.platform!='darwin': return
@@ -303,6 +333,7 @@ def run(stage=print, now=None):
             done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
         done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
         news_images(stage)
+        community_posts(local)
         if extra_allowed(local,cfg) and not errors:
             # Surplus clips: one extra post per hourly tick so the day's posts stay spread out.
             done,due=publish_due(cfg,today,timezone,local,stage,errors,published,extra=1)

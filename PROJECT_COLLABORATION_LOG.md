@@ -217,3 +217,11 @@ Owner request: post viral moments across the spectrum, not only GTA 6 (news, geo
 - `tests/test_autopilot.py` RunTests now patch the two news hooks (they read the web); the hooks are covered in the new tests.
 
 Tests: before 107 OK (3 skipped without Streamlit). After: `python -m unittest discover -s tests -v` → 124 OK with Streamlit installed; added `tests/test_newsdesk.py` (17 tests). Feeds cannot be reached from the cloud container; the X trends parser was checked against the live trends24.in page. Open: where images get posted (owner's choice).
+
+## 2026-11-23 — Claude — headline images post to the channel's Posts tab
+
+Owner chose the Viral Moment Clips YouTube page for the images. The YouTube Data API has no Community-post endpoint, so new `community.py` drives Chrome through Playwright with its own persistent sign-in (`data/community-browser`). `autopilot.community_posts` posts one pending image per hourly tick between 9:00 and 23:00, installs Playwright/Chromium itself if missing, retries an image at most 3 times (screenshots on failure) and sends one macOS notification a day when signed out. Dashboard News desk shows the waiting count and the one-time login command. `requirements.txt` adds playwright. `tests/test_autopilot.py` RunTests also patch `community_posts`.
+
+Not verified live: no signed-in session is available from the cloud. The flow was checked against a local mock of the post editor (text + image + Post). On 2026-11-23 the channel page showed no public Posts tab, so YouTube may also need to enable posts for the channel.
+
+Tests: before 126 OK. After: `python -m unittest discover -s tests -v` → 132 OK (Streamlit installed); added `tests/test_community.py` (6 tests).

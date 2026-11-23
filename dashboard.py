@@ -359,6 +359,10 @@ with tools:
         if st.form_submit_button('Save news desk',disabled=busy):
             try: newsdesk.save_settings(dict(enabled=desk_on,footage=desk_footage,images_per_day=int(desk_images))); st.rerun()
             except Exception as exc: show_problem(exc)
+    import community
+    waiting=community.pending()
+    meta(f'Images post to the channel\'s Posts tab, one per hour from 9:00 to 23:00 · {len(waiting)} waiting. '
+         'First time only, on the Mac run: .venv/bin/python community.py login')
     latest=sorted((newsdesk.folder()/'images').glob('*/*.jpg'))[-3:] if (newsdesk.folder()/'images').exists() else []
     if latest:
         for column,path in zip(st.columns(3),reversed(latest)): column.image(str(path))
