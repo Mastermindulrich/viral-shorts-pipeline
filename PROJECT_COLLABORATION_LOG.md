@@ -225,3 +225,12 @@ Owner chose the Viral Moment Clips YouTube page for the images. The YouTube Data
 Not verified live: no signed-in session is available from the cloud. The flow was checked against a local mock of the post editor (text + image + Post). On 2026-11-23 the channel page showed no public Posts tab, so YouTube may also need to enable posts for the channel.
 
 Tests: before 126 OK. After: `python -m unittest discover -s tests -v` → 132 OK (Streamlit installed); added `tests/test_community.py` (6 tests).
+
+
+## 2026-11-23 — Claude — news desk fixes from the first live run on the Mac
+
+The first run on the owner's Mac found 763 reports and 435 postable stories. Google News, the outlets, Google Trends and X worked; Reddit's JSON API returned HTTP 403. The top story was a Black Friday deals list. The image request to Ollama returned HTTP 400, the card showed fact bullets "S" and "a" (the editor returned one string, not a list), and the caption repeated #news #viral. The posting browser was not signed in yet (`community.py check`: signed_in False), so nothing was posted.
+
+Fixes: a `NOT_NEWS` filter (deals, sales, listicles, grades, odds, how-to-watch, recipes and so on); Reddit falls back to its RSS feed; one-string facts are wrapped in a list and facts need at least 4 words; hashtags are de-duplicated; `generate_image` retries with a streamed request and without width/height and reports Ollama's error text; `community.pending` never posts cards with one-letter facts.
+
+Tests: before 132 OK. After: `python -m unittest discover -s tests -v` → 137 OK.

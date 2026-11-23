@@ -27,6 +27,7 @@ import json
 import re
 import subprocess
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -73,6 +74,9 @@ STOP=set('''a an and are as at be been but by for from has have he her his how i
 that the their them they this to up was we were what when where which who why will with you your after over amid about
 says said say new news live update updates video watch report reports more than just first last year years day days week
 could would should may might can not no now still back off down here there just top latest breaking'''.split())
+# Not news people need to catch up on: shopping deals, listicles, schedules and evergreen service pieces.
+NOT_NEWS=(r'\b(deals?|on sale|promo codes?|coupons?|discounts?|best .{0,40} to buy|gift guide|how to watch|where to watch|live stream(ing)?|'
+          r'tv schedule|odds|picks|predictions?|power rankings|grades for every|horoscopes?|crossword|wordle|recipes?|review:)\b')
 KICKERS=('BREAKING','JUST IN','VIRAL','WORLD','POLITICS','SPORTS','RECORD','CELEBRITY','DEVELOPING','SHOCKING','UPDATE')
 CATEGORY_KICKER={'World':'WORLD','Nation':'JUST IN','Business':'JUST IN','Entertainment':'CELEBRITY','Sports':'SPORTS',
                  'Science':'JUST IN','Technology':'JUST IN','Top stories':'BREAKING'}
@@ -206,7 +210,12 @@ def read_buzz(cfg, log=print):
                 if d.get('over_18') or d.get('stickied'): continue
                 terms.append(dict(term=clean(d.get('title',''))[:200],source='Reddit r/'+sub,
                                   weight=min(5,1+int(d.get('score',0))//10000),context=[]))
-        except Exception as exc: log(f'Reddit r/{sub} skipped: {str(exc)[:80]}')
+        except Exception:
+            # Reddit often refuses the JSON API to scripts (HTTP 403); its RSS feed usually still works.
+            try:
+                for item in parse_feed(fetch(f'https://www.reddit.com/r/{sub}/top/.rss?t=day&limit=15'),'Reddit')[:15]:
+                    terms.append(dict(term=item['title'][:200],source='Reddit r/'+sub,weight=2,context=[]))
+            except Exception as exc: log(f'Reddit r/{sub} skipped: {str(exc)[:80]}')
     return terms
 
 
@@ -251,6 +260,10 @@ def is_major(name):
     return any(re.search(r'(^|\b)'+re.escape(m)+r'(\b|$)',name) for m in MAJOR)
 
 
+def lead_title(members):
+    return ' '.join(m['title'] for m in members[:3])
+
+
 def rank(items, terms, cfg, now=None):
     now=now or dt.datetime.now(dt.timezone.utc)
     oldest=now-dt.timedelta(hours=cfg['max_age_hours'])
@@ -263,6 +276,7 @@ def rank(items, terms, cfg, now=None):
         major=any(is_major(o) for o in outlets)
         text=' '.join(m['title']+' '+m['summary'] for m in members)
         if re.search(SENSITIVE,text,re.I): continue
+        if re.search(NOT_NEWS,lead_title(members),re.I): continue
         # Accuracy rule: real outlets must have reported it. Trends, X and Reddit only boost.
         if len(outlets)<cfg['min_outlets'] and not major: continue
         hits=[t for words,t in buzz if len(words&group['words'])>=min(2,len(words)) and words]
@@ -369,8 +383,10 @@ def write_card(story, model, ask=ask):
         card['highlight']=highlight if highlight and highlight.lower() in headline.lower() else ''
     title=clean(raw.get('title',''))[:95]
     if title and grounded(title,source): card['title']=title
-    facts=[clean(f)[:90] for f in (raw.get('facts') or []) if isinstance(f,str)]
-    card['facts']=[f for f in facts if f and grounded(f,source) and f.lower()!=card['headline'].lower()][:2]
+    facts=raw.get('facts') or []
+    if isinstance(facts,str): facts=[facts]  # a 7B model sometimes returns one string instead of a list
+    facts=[clean(f)[:90] for f in facts if isinstance(f,str)]
+    card['facts']=[f for f in facts if len(f.split())>=4 and grounded(f,source) and f.lower()!=card['headline'].lower()][:2]
     kicker=clean(raw.get('kicker','')).upper()
     if kicker in KICKERS: card['kicker']=kicker
     prompt=clean(raw.get('image_prompt',''))[:400]
@@ -415,13 +431,29 @@ STYLE=('bold stylised digital poster illustration, graphic novel style, dramatic
 def generate_image(prompt, model, path):
     # Owner asked for no AI label. Images stay clearly illustrated (bold digital poster art, never a fake
     # photo of a real event or person), which keeps them honest without a label.
-    body=dict(model=model,prompt=prompt+'. '+STYLE,width=1024,height=1280,stream=False)
-    request=urllib.request.Request(OLLAMA+'/api/generate',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
-    with urllib.request.urlopen(request,timeout=900) as response:
-        result=json.loads(response.read(100_000_000))
-    data=result.get('image') or (result.get('images') or [None])[0]
-    if not data: raise RuntimeError('The image model returned no image')
-    Path(path).write_bytes(base64.b64decode(data))
+    text=prompt+'. '+STYLE
+    # Ollama's image API is experimental: some versions reject width/height or non-streamed calls with
+    # HTTP 400. Try the documented form first, then simpler ones, and keep the server's error text.
+    problems=[]
+    for body in (dict(model=model,prompt=text,width=1024,height=1280,stream=False),
+                 dict(model=model,prompt=text,width=1024,height=1024,stream=True),
+                 dict(model=model,prompt=text,stream=True)):
+        request=urllib.request.Request(OLLAMA+'/api/generate',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
+        try:
+            with urllib.request.urlopen(request,timeout=1200) as response:
+                raw=response.read(200_000_000)
+        except urllib.error.HTTPError as exc:
+            problems.append(f'{exc.code} {exc.read(400).decode("utf-8","replace").strip()}'); continue
+        data=None
+        for line in raw.splitlines() or [raw]:
+            try: result=json.loads(line)
+            except ValueError: continue
+            if result.get('error'): problems.append(str(result['error'])[:200])
+            data=result.get('image') or (result.get('images') or [None])[0] or data
+        if data:
+            Path(path).write_bytes(base64.b64decode(data))
+            return path
+    raise RuntimeError('The image model returned no image: '+' | '.join(problems)[:500])
     return path
 
 
@@ -523,7 +555,7 @@ def compose(card, story, image, channel):
 
 
 def caption(card, story):
-    tags=' '.join((card.get('hashtags',[])+['#news','#viral'])[:5])
+    tags=' '.join(list(dict.fromkeys(card.get('hashtags',[])+['#news','#viral']))[:5])
     return (f"{card['headline']}\n\n"+''.join(f'• {f}\n' for f in card.get('facts',[]))+
             f"\nReported by {', '.join(story['outlets'][:4])}. Full story: {story['link']}\n{tags}")[:1900]
 

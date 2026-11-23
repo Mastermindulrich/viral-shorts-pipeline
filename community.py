@@ -119,6 +119,8 @@ def pending(days=2):
             try: record=p.read(record_path)
             except (OSError,ValueError): continue
             if record.get('posted') or record.get('attempts',0)>=MAX_ATTEMPTS: continue
+            # Cards made before the 2026-11-23 fix could carry one-letter fact bullets: never post those.
+            if any(len(str(f))<10 for f in record.get('card',{}).get('facts',[])): continue
             if (folder/record.get('image','')).exists(): items.append(record_path)
     return items
 
