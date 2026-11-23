@@ -177,7 +177,30 @@ def candidates(cfg, stage):
         choices=[x for x in scouting.shortlist(scouting.visible_ranked(ranked)) if x['url'] not in used]
     if cfg['focus_only']: choices=[x for x in choices if x.get('focus')]
     # visible_ranked already sorts by display score (trending and GTA get a boost).
-    return choices
+    if cfg['focus_only']: return choices
+    # Footage of today's biggest news stories (newsdesk) alternates with the usual picks.
+    news=news_footage(stage,used)
+    picked=[x for x in choices if x['url'] not in {n['url'] for n in news}]
+    mixed=[]
+    for index in range(max(len(news),len(picked))):
+        mixed.extend(x for x in (news[index:index+1]+picked[index:index+1]))
+    return mixed
+
+
+def news_footage(stage, used):
+    """Screened videos of the stories making the buzz right now. Never stops a round when it fails."""
+    try:
+        import newsdesk
+        import scouting
+        if not newsdesk.settings()['enabled']: return []
+        stage('Autopilot: checking the news, Google Trends, X and Reddit for footage of today\'s buzz')
+        added=newsdesk.footage(log=lambda m:print(m,flush=True))
+        ranked=p.read(p.DATA/'ranked-candidates.json') if (p.DATA/'ranked-candidates.json').exists() else []
+        if added: ranked=scouting.refresh()
+        return newsdesk.footage_candidates(scouting.visible_ranked(ranked),used)
+    except Exception as exc:
+        print(f'News footage skipped: {str(exc)[:200]}',flush=True)
+        return []
 
 
 def prepare_round(cfg, stage):
@@ -205,6 +228,49 @@ def prepare_round(cfg, stage):
         try: scouting.hide_video(item)
         except Exception: pass
     return [],errors
+
+
+def news_images(stage):
+    """Headline images for today's buzz (newsdesk). Failures are logged and never block clips."""
+    try:
+        import newsdesk
+        cfg=newsdesk.settings()
+        if not (cfg['enabled'] and cfg['images_per_day']): return []
+        # Spread over the day: at most two new images per hourly tick.
+        return newsdesk.make_images(min(2,max(0,cfg['images_per_day']-newsdesk.images_made_today(local_now().date()))),cfg,stage)
+    except Exception as exc:
+        print(f'News images skipped: {str(exc)[:200]}',flush=True)
+        return []
+
+
+def community_posts(local):
+    """Post one pending headline image to the channel's Posts tab per tick (9:00-23:00). Never blocks clips."""
+    try:
+        import newsdesk
+        if not newsdesk.settings()['enabled'] or not 9<=local.hour<=23: return []
+        import community
+        if not community.pending(): return []
+        try: import playwright  # noqa: F401
+        except ImportError:
+            subprocess.run([sys.executable,'-m','pip','install','-q','playwright'],capture_output=True,timeout=900)
+        try: return community.post_next(1)
+        except Exception as exc:
+            if 'Executable' in str(exc) or 'playwright install' in str(exc):
+                # Neither Google Chrome nor Playwright's Chromium is installed yet: fetch Chromium once.
+                subprocess.run([sys.executable,'-m','playwright','install','chromium'],capture_output=True,timeout=1800)
+                return community.post_next(1)
+            raise
+    except PermissionError as exc:
+        print(f'Community posts paused: {exc}',flush=True)
+        marker=p.DATA/'newsdesk'/'community-signin-notice.txt'
+        today=dt.date.today().isoformat()
+        if not (marker.exists() and marker.read_text().strip()==today):
+            marker.parent.mkdir(parents=True,exist_ok=True); marker.write_text(today)
+            notify('Sign in once so images can post: .venv/bin/python community.py login')
+        return []
+    except Exception as exc:
+        print(f'Community posts skipped: {str(exc)[:200]}',flush=True)
+        return []
 
 
 def notify(message):
@@ -266,6 +332,8 @@ def run(stage=print, now=None):
                 break
             done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
         done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
+        news_images(stage)
+        community_posts(local)
         if extra_allowed(local,cfg) and not errors:
             # Surplus clips: one extra post per hourly tick so the day's posts stay spread out.
             done,due=publish_due(cfg,today,timezone,local,stage,errors,published,extra=1)
