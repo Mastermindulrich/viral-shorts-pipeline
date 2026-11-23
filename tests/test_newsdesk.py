@@ -68,6 +68,12 @@ class RankTests(unittest.TestCase):
                report('Old election result confirmed by court','Reuters',hours=80)]
         self.assertEqual(nd.rank(items,[],self.cfg,NOW),[])
 
+    def test_deals_and_listicles_are_not_news(self):
+        items=[report('77 best early Black Friday deals: Bose, Apple, Nintendo on sale','CNN',category='Technology'),
+               report('NFL Week 11 grades for every team: Cowboys earn A-','ESPN',category='Sports'),
+               report('Russian warship sinks in Benghazi after suspected drone attack','Reuters')]
+        self.assertEqual([s['title'] for s in nd.rank(items,[],self.cfg,NOW)],['Russian warship sinks in Benghazi after suspected drone attack'])
+
     def test_same_event_from_several_outlets_is_one_story(self):
         items=[report('Iran seizes two tankers in Strait of Hormuz','Reuters'),
                report('Iran seizes two oil tankers near Strait of Hormuz','BBC'),
@@ -109,6 +115,26 @@ class CardTests(unittest.TestCase):
         self.assertNotIn('Donald Trump',card['image_prompt'])
         self.assertEqual(card['hashtags'],['#iran','#oil'])
         self.assertEqual(card['search'],'Iran tankers Strait of Hormuz')
+
+    def test_facts_given_as_one_string_are_not_split_into_letters(self):
+        answer=dict(headline='Iran seizes two tankers in Hormuz',facts='Iran says it will do everything necessary to lift the blockade')
+        card=nd.write_card(STORY,'qwen2.5:7b',ask=lambda prompt,model:answer)
+        self.assertEqual(card['facts'],['Iran says it will do everything necessary to lift the blockade'])
+        self.assertEqual(nd.caption(card,STORY).count('#news'),1)
+
+    def test_image_api_falls_back_to_a_streamed_request(self):
+        import io, json, urllib.error
+        calls=[]
+        def opener(request,timeout):
+            body=json.loads(request.data); calls.append(body)
+            if not body['stream']: raise urllib.error.HTTPError(request.full_url,400,'Bad Request',{},io.BytesIO(b'{"error":"bad"}'))
+            response=io.BytesIO(b'{"completed":1,"total":2}\n{"image":"aGk=","done":true}\n')
+            response.__enter__=lambda: response; response.__exit__=lambda *a: None
+            return response
+        with tempfile.TemporaryDirectory() as folder, patch('urllib.request.urlopen',opener):
+            path=nd.generate_image('tankers at sea','x/z-image-turbo',Path(folder)/'a.png')
+            self.assertEqual(Path(path).read_bytes(),b'hi')
+        self.assertEqual(len(calls),2)
 
     def test_write_card_falls_back_to_outlet_headline(self):
         invented=dict(headline='Iran sinks 7 US warships',facts=['50 dead'],kicker='NOPE',title='Iran sinks 7 ships')

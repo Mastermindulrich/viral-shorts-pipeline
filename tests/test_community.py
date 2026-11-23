@@ -33,6 +33,10 @@ class CommunityTests(unittest.TestCase):
         p.write(self.day/'b.json',dict(p.read(self.day/'b.json'),posted=True))
         self.assertEqual([x.name for x in c.pending()],['a.json'])
 
+    def test_broken_fact_cards_are_never_posted(self):
+        p.write(self.day/'a.json',dict(p.read(self.day/'a.json'),card=dict(headline='x',facts=['S','a'])))
+        self.assertEqual([x.name for x in c.pending()],['b.json'])
+
     def test_success_marks_posted(self):
         with patch.object(c,'publish',return_value=True) as publish:
             posted=c.post_next(1,self.factory)
