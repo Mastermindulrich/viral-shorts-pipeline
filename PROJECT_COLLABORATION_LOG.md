@@ -259,3 +259,9 @@ Evidence first: read the Mac's live logs (folder access). 11 Shorts posted on 20
 Tests: before 137 OK (3 skipped without Streamlit); after merging PR #9 137 OK. After: `python -m unittest discover -s tests -v` → 162 OK with Streamlit installed. Headless screenshots of Today and Discover checked. No suite run wrote to `data/`.
 
 Merge order: this PR contains PR #9, so merge this one and close #9 (or merge #9 first; this branch then merges cleanly).
+
+## 2026-11-24 — Claude — public home page and privacy policy for Google OAuth publishing
+
+To stop the weekly YouTube sign-in expiry, the owner is moving the Google OAuth app from Testing to Production. Google's "Publier l'application" button stays disabled until Branding is complete (home page, privacy policy, authorized domain, needed once a logo is set). Added a static site in `docs/` (`index.html`, `privacy.html`, `terms.html`, `style.css`, `logo.png`, `.nojekyll`) for GitHub Pages (main branch, `/docs`). URLs: https://mastermindulrich.github.io/viral-shorts-pipeline/ plus `privacy.html` and `terms.html`; authorized domain `mastermindulrich.github.io`. No code changes.
+
+Tests: before 162 OK; after `python -m unittest discover -s tests` → 162 OK.
