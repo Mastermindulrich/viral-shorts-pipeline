@@ -18,6 +18,8 @@ import traceback
 from pathlib import Path
 import pipeline as p
 import content_policy as policy
+import health
+import learning
 
 SETTINGS=p.DATA/'autopilot-settings.json'
 STATE=p.DATA/'autopilot.json'
@@ -154,14 +156,33 @@ def ensure_editor(model, sleep=time.sleep):
 
 
 def upgrade_downloader():
-    """yt-dlp breaks whenever YouTube changes; refresh it at most once a day."""
-    marker=p.DATA/'autopilot-ytdlp-upgrade.txt'
-    today=dt.date.today().isoformat()
-    if marker.exists() and marker.read_text().strip()==today: return False
-    marker.parent.mkdir(parents=True,exist_ok=True); marker.write_text(today)
-    result=subprocess.run([sys.executable,'-m','pip','install','-q','-U','yt-dlp'],capture_output=True,text=True,timeout=600)
-    print('yt-dlp upgrade: '+('ok' if result.returncode==0 else (result.stderr or '')[-300:]),flush=True)
-    return result.returncode==0
+    """yt-dlp breaks whenever YouTube changes; refresh it at most once a day (see health.upgrade_downloader)."""
+    return health.upgrade_downloader()
+
+
+def vary_niches(items, recent=()):
+    """Reorder so consecutive picks come from different niches, starting away from what was just posted.
+    Scores still decide the order inside each niche (owner 2026-11-24: shorts in many niches)."""
+    queues={}
+    for item in items: queues.setdefault(item.get('niche') or policy.niche(item),[]).append(item)
+    order=[]; last=list(recent)[-1:] 
+    while any(queues.values()):
+        names=[n for n,q in queues.items() if q]
+        # Best remaining item whose niche differs from the previous pick (if any differ).
+        fresh=[n for n in names if n not in last] or names
+        best=max(fresh,key=lambda n:(queues[n][0].get('display_score',0)))
+        order.append(queues[best].pop(0)); last=[best]
+    return order
+
+
+def recent_niches(limit=3):
+    rows=[]
+    for path in (p.DATA/'exports').glob('*/upload.json'):
+        try:
+            receipt=p.read(path)
+            if receipt.get('state')=='uploaded': rows.append((receipt.get('uploaded_at') or '',p.read(path.parent/'job.json').get('title','')))
+        except (OSError,ValueError): continue
+    return [policy.niche(dict(title=t)) for _,t in sorted(rows)[-limit:]]
 
 
 def candidates(cfg, stage):
@@ -203,28 +224,69 @@ def news_footage(stage, used):
         return []
 
 
-def prepare_round(cfg, stage):
-    """Turn the best unused video into ready clips. Tries up to three videos; returns the jobs made."""
+SOURCE_PROBLEMS={'no_complete_scene','not_english','too_little_speech','source_refused','copyright','music_release',
+                 'media_broken','bot_check','downloader_outdated'}
+SYSTEM_STOP={'disk_full','media_tools_missing','youtube_signin','wrong_channel','out_of_memory','editor_down','editor_missing'}
+
+
+def make_clips(item, defaults, stage, attempt=None):
+    """Download and cut one video. Each failure is diagnosed; where a better approach exists
+    (upgrade the downloader, restart the editor, free disk, ask for the single best moment,
+    use the lighter transcription model) it is applied and the same video is retried once."""
     import app_runtime as rt
+    import preparation as prep
+    attempt=attempt or dict(count=defaults['count'],model=defaults['transcription_model'],tries=0)
+    try:
+        stage(f'Autopilot: downloading “{item["title"][:70]}”',20)
+        source=rt.import_source(item['url'],defaults.get('clearance',''),item.get('title',''))
+        stage(f'Autopilot: cutting clips from “{item["title"][:70]}”',30)
+        return rt.retry(lambda:prep.prepare(source['input'],source['source_url'],attempt['count'],attempt['model'],
+                                            defaults['captions'],'semantic',defaults['editor_model'],
+                                            progress=lambda n,m: stage('Autopilot: '+m,n)),'Scene selection')
+    except Exception as exc:
+        diagnosis=health.record('clip-making',exc,item)
+        if attempt['tries']>=1 or diagnosis['strategy']!=health.RETRY_BETTER: raise
+        better=dict(attempt,tries=attempt['tries']+1)
+        if diagnosis['id']=='no_complete_scene':
+            if str(attempt['count'])=='1': raise
+            better['count']=1
+            health.note('editor','No complete scene: asking the editor again for the single best moment (transcript reused)')
+        elif diagnosis['id']=='out_of_memory':
+            health.repair(diagnosis); better['model']='base'
+            health.note('memory','Retrying with the lighter base transcription model')
+        elif not health.repair(diagnosis): raise
+        stage('Autopilot: retrying the same video with a better approach',25)
+        return make_clips(item,defaults,stage,better)
+
+
+def prepare_round(cfg, stage):
+    """Turn the best unused video into ready clips. Tries up to three videos; returns the jobs made.
+
+    A video is hidden (and its channel ranked lower) only when the video itself was the problem.
+    When the Mac is the problem (disk, FFmpeg, sign-in, editor) the round stops instead of
+    burning good videos, and the diagnosis says what was done about it."""
     import scouting
     import studio
-    import preparation as prep
     defaults=studio.preferences()
     ensure_editor(defaults['editor_model'])
     errors=[]
-    for number,item in enumerate(candidates(cfg,stage)[:3],1):
+    picks=vary_niches(candidates(cfg,stage),recent_niches())
+    for number,item in enumerate(picks[:3],1):
         try:
-            stage(f'Autopilot: cutting clips from “{item["title"][:70]}”',20)
-            source=rt.import_source(item['url'],defaults.get('clearance',''),item.get('title',''))
-            jobs=rt.retry(lambda:prep.prepare(source['input'],source['source_url'],defaults['count'],defaults['transcription_model'],
-                                              defaults['captions'],'semantic',defaults['editor_model'],
-                                              progress=lambda n,m: stage('Autopilot: '+m,n)),'Scene selection')
+            jobs=make_clips(item,defaults,stage)
             fresh=[j for j in jobs if not (p.DATA/'exports'/j['id']/'upload.json').exists()]
             if fresh:
-                enqueue(fresh); return fresh,errors
+                enqueue(fresh); learning.record_source(item,True); health.resolved(*SOURCE_PROBLEMS,*SYSTEM_STOP)
+                return fresh,errors
             errors.append(f'{item["title"][:50]}: no new clips')
         except Exception as exc:
             traceback.print_exc(); errors.append(f'{item["title"][:50]}: {exc}')
+            diagnosis=health.diagnose(exc)
+            if diagnosis['id'] in SYSTEM_STOP or diagnosis['strategy']==health.OWNER:
+                errors.append(f'Stopped this round: {diagnosis["title"]}. {diagnosis["fix"]}')
+                break
+            if diagnosis['strategy']==health.LATER: continue  # a network blip says nothing about the video
+            if diagnosis['id'] in SOURCE_PROBLEMS: learning.record_source(item,False,diagnosis['title'])
         try: scouting.hide_video(item)
         except Exception: pass
     return [],errors
@@ -236,10 +298,12 @@ def news_images(stage):
         import newsdesk
         cfg=newsdesk.settings()
         if not (cfg['enabled'] and cfg['images_per_day']): return []
+        if not health.allowed('news-images'): return []
         # Spread over the day: at most two new images per hourly tick.
         return newsdesk.make_images(min(2,max(0,cfg['images_per_day']-newsdesk.images_made_today(local_now().date()))),cfg,stage)
     except Exception as exc:
         print(f'News images skipped: {str(exc)[:200]}',flush=True)
+        health.failure('news-images',exc)
         return []
 
 
@@ -248,6 +312,7 @@ def community_posts(local):
     try:
         import newsdesk
         if not newsdesk.settings()['enabled'] or not 9<=local.hour<=23: return []
+        if not health.allowed('community'): return []
         import community
         if not community.pending(): return []
         try: import playwright  # noqa: F401
@@ -262,6 +327,7 @@ def community_posts(local):
             raise
     except PermissionError as exc:
         print(f'Community posts paused: {exc}',flush=True)
+        health.record('posts-tab',exc); health.pause('community',6,exc)
         marker=p.DATA/'newsdesk'/'community-signin-notice.txt'
         today=dt.date.today().isoformat()
         if not (marker.exists() and marker.read_text().strip()==today):
@@ -270,6 +336,9 @@ def community_posts(local):
         return []
     except Exception as exc:
         print(f'Community posts skipped: {str(exc)[:200]}',flush=True)
+        diagnosis=health.record('posts-tab',exc)
+        if diagnosis['id']=='posts_tab': health.pause('community',24,exc)
+        else: health.failure('community',exc)
         return []
 
 
@@ -301,12 +370,17 @@ def publish_due(cfg, today, timezone, local, stage, errors, published, extra=0):
         except Exception as exc:
             traceback.print_exc()
             text=str(exc)
-            if any(h in text.lower() for h in AUTH_HINTS): raise
+            diagnosis=health.record('publishing',exc,dict(title=ident))
+            if any(h in text.lower() for h in AUTH_HINTS) or diagnosis['id'] in ('youtube_signin','wrong_channel'): raise
             if p.quota_refusal(exc):
                 # Quota or daily cap: the clip is fine, keep it for the next tick or tomorrow.
                 errors.append(f'{ident}: {text} (kept; will retry later)'); break
             if rt.transient(exc) and not (p.DATA/'exports'/ident/'upload.json').exists():
                 errors.append(f'{ident}: {text} (will retry next hour)'); break
+            if diagnosis['strategy']==health.LATER or rt.transient(exc):
+                # The upload was cut off midway. Its receipt stays 'uploading' so it is never posted twice;
+                # release_unconfirmed() checks the channel and gives the clip back if YouTube never got it.
+                errors.append(f'{ident}: {text} (checking with YouTube before any retry)'); break
             skip(ident,text); errors.append(f'{ident}: {text}')
     return done,due
 
@@ -318,8 +392,17 @@ def run(stage=print, now=None):
     timezone=studio.preferences()['timezone']
     local=local_now(now); today=local.date()
     errors=[]; published=[]
+    checks=health.preflight(stage)
+    for problem in checks: print('Health check: '+problem,flush=True)
     try: p.reconcile_receipts()
     except Exception as exc: print(f'Receipt check skipped: {exc}',flush=True)
+    try:
+        for ident in p.release_unconfirmed():
+            q=queue(); q['skipped'].pop(ident,None); save_queue(q); enqueue([dict(id=ident)])
+            health.note('publishing',f'{ident}: YouTube never received the interrupted upload, so it goes out again')
+    except Exception as exc: print(f'Unconfirmed upload check skipped: {exc}',flush=True)
+    try: learning.refresh_niches()
+    except Exception as exc: print(f'Niche learning skipped: {str(exc)[:160]}',flush=True)
     try:
         done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
         rounds=0
@@ -328,7 +411,6 @@ def run(stage=print, now=None):
             jobs,problems=prepare_round(cfg,stage)
             errors.extend(problems)
             if not jobs:
-                if any(h in ' '.join(problems).lower() for h in YTDLP_HINTS) and upgrade_downloader(): continue
                 break
             done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
         done,due=publish_due(cfg,today,timezone,local,stage,errors,published)
@@ -339,6 +421,7 @@ def run(stage=print, now=None):
             done,due=publish_due(cfg,today,timezone,local,stage,errors,published,extra=1)
     except Exception as exc:
         text=str(exc)
+        health.record('autopilot',exc)
         record=dict(last_run=dt.datetime.now(dt.timezone.utc).isoformat(),day=today.isoformat(),
                     published_today=published_on(today,timezone),target=cfg['daily_target'],
                     ready=len(ready()),published=published,errors=(errors+[text])[-10:],blocked=True)
@@ -348,7 +431,7 @@ def run(stage=print, now=None):
         raise
     record=dict(last_run=dt.datetime.now(dt.timezone.utc).isoformat(),day=today.isoformat(),
                 published_today=done,due_now=due,target=cfg['daily_target'],ready=len(ready()),
-                published=published,errors=errors[-10:],blocked=False)
+                published=published,errors=errors[-10:],health_checks=checks,blocked=False)
     p.write(STATE,record)
     if done<due:
         message=f'Behind schedule: {done} of {due} clips due by now are posted. Retrying automatically next hour.'

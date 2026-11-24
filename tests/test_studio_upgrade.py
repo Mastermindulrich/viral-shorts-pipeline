@@ -125,6 +125,10 @@ class EditorialAuditTests(unittest.TestCase):
     def setUp(self):
         fixture=fixtures.EditorialTests(); fixture.setUp()
         self.scene=fixture.scene; self.segments=fixture.segments
+        # Failed reviews are saved under data/editorial: keep them out of the real data folder
+        # (found 2026-11-24: the update check left a fake review in the owner's data/editorial).
+        self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        patcher=patch.object(p,'DATA',Path(self.tmp.name)); patcher.start(); self.addCleanup(patcher.stop)
 
     def test_final_auditor_can_reject_a_catchy_but_contextless_cut(self):
         with patch.object(e,'ask',side_effect=[dict(summary='Cash vs revenue',scenes=[self.scene]),

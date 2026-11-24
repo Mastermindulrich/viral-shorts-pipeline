@@ -43,7 +43,8 @@ class DashboardTests(unittest.TestCase):
 
     def test_shortlist_tabs_and_duplicate_warning(self):
         app=self.run_app()
-        self.assertEqual([t.label for t in app.tabs],['Review (2)','Discover','Published','Settings'])
+        # Owner request 2026-11-24 (premium redesign): a Today overview tab comes first.
+        self.assertEqual([t.label for t in app.tabs],['Today','Review (2)','Discover','Published','Settings'])
         choices=[b for b in app.button if (b.key or '').startswith('generate-')]
         self.assertEqual(len(choices),10)
         self.assertTrue(any('Already published from this moment' in x.value and 'youtu.be/abc' in x.value for x in app.warning))

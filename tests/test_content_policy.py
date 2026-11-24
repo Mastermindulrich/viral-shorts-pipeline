@@ -19,7 +19,9 @@ class ContentPolicyTests(unittest.TestCase):
             ({'title':'New Song','source':'Artist - Topic','categoryId':'10'},False),
             ({'title':'Artist - Song (Official Audio)','source':'Artist'},False),
             ({'title':'Artist - Song Official Music Video REACTION','source':'Reaction channel'},True),
-            ({'title':'New Film Official Trailer','source':'Movie studio'},True),
+            # Owner rule 2026-11-24: official cuts are skipped (copyright); reactions to them stay allowed.
+            ({'title':'New Film Official Trailer','source':'Movie studio'},False),
+            ({'title':'New Film Official Trailer REACTION','source':'Movie fans'},True),
             ({'title':'Artist - Hot Interview','source':'Artist','categoryId':'10'},True),
             ({'title':'Artist dance challenge','source':'ArtistVEVO','categoryId':'10'},True),
             ({'title':'Amapiano dance challenge','source':'Dancers','categoryId':'10','defaultAudioLanguage':'zu'},True),
@@ -28,6 +30,28 @@ class ContentPolicyTests(unittest.TestCase):
             ({'title':'Artist - Dance Tonight (Official Music Video)','source':'Artist'},False)]
         for item,expected in examples:
             with self.subTest(item=item): self.assertEqual(policy.screen(item)['eligible'],expected)
+
+    def test_copyright_guard_skips_rights_holders_but_keeps_other_peoples_footage(self):
+        blocked=[dict(title='Best scene',source='HBO'),dict(title='Recap',source='Disney Plus'),
+                 dict(title='Clip',channelTitle='Marvel Entertainment'),dict(title='Live',source='Fox News'),
+                 dict(title='Highlights',source='Sky Sports Football'),dict(title='GTA VI Trailer 2',source='Rockstar Games'),
+                 dict(title='Rocky - Final Fight Scene | Movieclips',source='Movieclips'),
+                 dict(title='GTA 6 Official Trailer 2',source='Some Reuploader'),dict(title='Friends Full Episode',source='Fan')]
+        allowed=[dict(title='HBO fan edit of the finale',source='HBO fan edits'),
+                 dict(title='GTA 6 Official Trailer 2 Breakdown - things you missed',source='Gamer'),
+                 dict(title='Kai Cenat plays GTA 6 for the first time',source='Kai Cenat Clips'),
+                 dict(title='Crowd goes wild as striker scores',source='Stadium fan cam')]
+        for item in blocked:
+            with self.subTest(item=item):
+                decision=policy.screen(item)
+                self.assertFalse(decision['eligible']); self.assertEqual(decision['kind'],'copyright')
+        for item in allowed:
+            with self.subTest(item=item): self.assertTrue(policy.screen(item)['eligible'])
+
+    def test_copyright_overrides_from_config(self):
+        with patch.object(policy,'copyright_overrides',return_value=({'hbo'},{'my rival channel'})):
+            self.assertEqual(policy.copyright_risk(dict(source='HBO',title='x')),'')
+            self.assertTrue(policy.copyright_risk(dict(source='My Rival Channel',title='x')))
 
     def test_strict_music_screen_catches_unlabelled_and_nonofficial_releases(self):
         for item in [dict(title='A new single',source='Unknown label',categoryId='10'),

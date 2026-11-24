@@ -96,6 +96,14 @@ def explain(error, action=''):
             'Temporary download and search failures are retried automatically before the task stops.',
             'Try another publicly accessible source if this one is private, restricted or removed.',
             'For a failed upload, check YouTube Studio before retrying. If this continues, share Activity and diagnostics.'])
+    try:
+        import health
+        diagnosis=health.diagnose(error)
+        if diagnosis['id']!='unknown':
+            steps=[diagnosis['cause'],'What the app does: '+diagnosis['fix']]
+            if diagnosis.get('owner'): steps.append('What you can do: '+diagnosis['owner'])
+            return answer(diagnosis['title']+'.',steps)
+    except Exception: pass
     return answer('The app could not finish this action. The exact cause needs checking.',[
         'Keep your existing clips; you do not need to start the project again.',
         'Expand Activity and diagnostics at the bottom of the page and click Download diagnostics to share.',

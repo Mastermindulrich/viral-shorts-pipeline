@@ -5,6 +5,7 @@ import re
 import statistics
 import pipeline as p
 import content_policy as policy
+import learning
 
 DEFAULTS=dict(categories=[x['name'] for x in policy.TOPICS],days=3,min_views=5000,
               min_views_per_hour=200,source_preference='Prefer independent',
@@ -12,6 +13,12 @@ DEFAULTS=dict(categories=[x['name'] for x in policy.TOPICS],days=3,min_views=500
               focus=policy.FOCUS['name'])
 FOCUS_BOOST=8
 TRENDING_BOOST=12
+# Smarter discovery (owner 2026-11-24): clickable titles and stories people are talking about
+# right now (news desk buzz terms) rank higher; learning.py adds what the channel's own viewers
+# watch and demotes channels whose videos keep failing.
+CLICK_WEIGHT=.6
+BUZZ_BOOST=10
+NICHE_SHARE=3
 TRENDING_NAME='Trending today'
 TRENDING_FEED='https://trends.google.com/trending/rss?geo={region}'
 CATEGORY_TERMS={
@@ -67,6 +74,7 @@ def categories_for(item):
 def filter_ranked(items, prefs=None, now=None):
     prefs=preferences() if prefs is None else prefs
     now=now or dt.datetime.now(dt.timezone.utc)
+    buzz=[x.casefold() for x in newsdesk_terms(now) if len(x)>=4][:40]
     result=[]
     for item in items:
         try: age=(now-dt.datetime.fromisoformat(item['published'].replace('Z','+00:00'))).total_seconds()/3600
@@ -89,21 +97,44 @@ def filter_ranked(items, prefs=None, now=None):
         focus=bool(prefs.get('focus')) and policy.is_focus(item)
         trending=item.get('discovered_via')==TRENDING_NAME
         if prefs['categories'] and not set(categories).intersection(prefs['categories']) and item.get('discovered_via')!='Your event search' and not focus and not trending: continue
-        row=dict(item,categories=categories,source_type=source_type,focus=focus)
-        row['display_score']=item.get('priority_score',0)+(5 if prefs['source_preference']=='Prefer independent' and source_type.startswith('Unverified') else 0)+(FOCUS_BOOST if focus else 0)+(TRENDING_BOOST if trending else 0)
+        penalty=learning.source_penalty(item,now)
+        if penalty is None: continue  # this channel's videos never produced a usable clip (paused 14 days)
+        row=dict(item,categories=categories,source_type=source_type,focus=focus,niche=policy.niche(item),
+                 clickability=policy.clickability(item))
+        row['buzz']=buzz_match(item,buzz)
+        row['display_score']=round(item.get('priority_score',0)+(5 if prefs['source_preference']=='Prefer independent' and source_type.startswith('Unverified') else 0)
+                                   +(FOCUS_BOOST if focus else 0)+(TRENDING_BOOST if trending else 0)
+                                   +row['clickability']*CLICK_WEIGHT+(BUZZ_BOOST if row['buzz'] else 0)
+                                   +learning.niche_boost(row['niche'])-penalty,1)
         result.append(row)
     return sorted(result,key=lambda x:x['display_score'],reverse=True)
 
 
+def buzz_match(item, terms):
+    """The first buzz term (X, Google Trends, news desk) that the video's title mentions, or ''."""
+    title=item.get('title','').casefold()
+    for term in terms:
+        if re.search(r'(?<!\w)'+re.escape(term)+r'(?!\w)',title): return term
+    return ''
+
+
 def shortlist(items, limit=10):
-    """Keep ten strong choices without letting one channel fill the list."""
-    selected=[]; per_source={}; titles=set()
-    for item in items:
-        title=re.sub(r'\W+',' ',item.get('title','').casefold()).strip()
-        source=item.get('channel_id') or item.get('source','')
-        if title in titles or per_source.get(source,0)>=2: continue
-        selected.append(item); titles.add(title); per_source[source]=per_source.get(source,0)+1
-        if len(selected)>=limit: break
+    """Keep ten strong choices without letting one channel or one niche fill the list.
+
+    First pass: at most two per channel and NICHE_SHARE per niche, so the list spans several
+    niches. Second pass fills any remaining places (still two per channel) in score order."""
+    selected=[]; per_source={}; per_niche={}; titles=set()
+    for capped in (True,False):
+        for item in items:
+            if len(selected)>=limit: break
+            if any(item is x for x in selected): continue
+            title=re.sub(r'\W+',' ',item.get('title','').casefold()).strip()
+            source=item.get('channel_id') or item.get('source','')
+            group=item.get('niche') or policy.niche(item)
+            if title in titles or per_source.get(source,0)>=2: continue
+            if capped and per_niche.get(group,0)>=NICHE_SHARE: continue
+            selected.append(item); titles.add(title); per_source[source]=per_source.get(source,0)+1
+            per_niche[group]=per_niche.get(group,0)+1
     return selected
 
 
@@ -239,11 +270,34 @@ def refresh():
     return result
 
 
-def trending_queries(regions, fetch=None, now=None):
-    """Today's top searches (Google Trends daily feed), cached for an hour.
+def newsdesk_terms(now=None, max_age_hours=6):
+    """Buzz terms the news desk saved (X, Google Trends, Reddit), strongest first.
 
-    X/Twitter trends need a paid API, so Google's free public feed is the 'what is
-    buzzing right now' signal. Returns [] on any failure; scans then use topics only."""
+    Reads data/newsdesk/trending-terms.json when it is fresh; [] when missing or stale."""
+    now=now or dt.datetime.now(dt.timezone.utc)
+    try:
+        saved=p.read(p.DATA/'newsdesk'/'trending-terms.json')
+        if (now-dt.datetime.fromisoformat(saved['updated_at'])).total_seconds()>max_age_hours*3600: return []
+        terms=sorted(saved.get('terms') or [],key=lambda t:-float(t.get('weight') or 0))
+        # Reddit entries are whole post titles, too long to work as search queries.
+        return [str(t['term']).strip()[:120] for t in terms
+                if str(t.get('term') or '').strip() and not str(t.get('source') or '').startswith('Reddit')]
+    except Exception: return []
+
+
+def trending_queries(regions, fetch=None, now=None):
+    """What is buzzing now: news desk terms (X, Reddit, Trends) first, then Google Trends.
+
+    X/Twitter trends need a paid API, so the news desk's scan and Google's free daily
+    feed are the signal. Returns [] on any failure; scans then use topics only."""
+    found=[]
+    for term in newsdesk_terms(now)+google_trends(regions,fetch,now):
+        if term.casefold() not in {x.casefold() for x in found}: found.append(term)
+    return found[:40]
+
+
+def google_trends(regions, fetch=None, now=None):
+    """Today's top searches (Google Trends daily feed), cached for an hour."""
     import urllib.request
     import xml.etree.ElementTree as ET
     now=now or dt.datetime.now(dt.timezone.utc)
