@@ -113,6 +113,65 @@ OFFICIAL_CUT=re.compile(r'\bofficial\s+(?:(?:final|teaser|international|uk|us|re
 COMMENTARY=re.compile(r'\b(react(?:s|ing|ion|ions)?|breakdown|explained|analysis|review|first time (?:watching|hearing|seeing)|things you missed|easter eggs|theory|theories|predictions?)\b',re.I)
 
 
+# Movie and TV scenes (owner 2026-11-24): a scene re-uploaded by a fan channel is still the
+# studio's footage and draws copyright claims, so it is skipped whoever posted it.
+FILM_CATEGORIES={'1','30','43','44'}  # YouTube: Film & Animation, Movies, Shows, Trailers
+SCENE=re.compile(r'\b(?:movie|film|tv|show|fight|final|opening|ending|deleted|best|iconic|funniest|funny|famous|emotional|'
+                 r'epic|legendary|classic|cameo|death|battle|chase|post[- ]?credits?|mid[- ]?credits?)\s+scenes?\b|'
+                 r'\bscenes?\s*(?:[|(\[]|[-–—:]\s|$)|\b(?:4k|hd|1080p|imax)\s+(?:scenes?|clips?|moments?)\b|'
+                 r'\bmovie\s+(?:moments?|clips?|edit)\b|\bfilm\s+clips?\b|\bs\d{1,2}\s?e\d{1,2}\b|'
+                 r'\bseason\s+\d+\s*,?\s*(?:ep(?:isode)?\.?\s*\d+)\b|\bpost[- ]?credits?\b|'
+                 r'\b(?:movie|film)\b[^()]*\(\s*(?:19|20)\d{2}\s*\)',re.I)
+# "Scene" in news and culture titles: crime scene, at the scene, music scene.
+NEWS_SCENE=re.compile(r'\b(?:crime|accident|shooting|crash|fire|music|rap|drill|art|club|street|local|political|tech|startup|fashion)\s+scenes?\b|'
+                      r'\b(?:at|on|from|to|near|behind)\s+the\s+scenes?\b|\bbehind[- ]the[- ]scenes\b',re.I)
+FRANCHISE=re.compile(r'\b(?:marvel|mcu|avengers?|captain america|steve rogers|iron ?man|tony stark|thor|loki|hulk|black widow|'
+                     r'spider-?man|peter parker|doctor strange|guardians of the galaxy|deadpool|wolverine|x-men|black panther|'
+                     r'thanos|star wars|darth vader|mandalorian|harry potter|hogwarts|game of thrones|house of the dragon|'
+                     r'the boys|homelander|breaking bad|better call saul|the office|stranger things|squid game|pixar|toy story|'
+                     r'shrek|minions|batman|the joker|superman|dark knight|justice league|lord of the rings|the hobbit|john wick|'
+                     r'fast (?:and|&) furious|jurassic (?:park|world)|transformers|mission impossible|james bond|top gun|'
+                     r'the godfather|peaky blinders|walking dead|rick and morty|the simpsons|family guy|spongebob|succession|'
+                     r'yellowstone|the sopranos|euphoria|the bear|severance|wednesday addams|oppenheimer|interstellar|gladiator)\b',re.I)
+FRANCHISE_REUSE=re.compile(r'\b(?:scenes?|clips?|edit|edits|moments?|4k|hd|1080p|compilation|supercut|tribute|best of|full fight|'
+                           r'(?:19|20)\d{2})\b|\s\|\s',re.I)
+REUPLOAD_NOTE=re.compile(r"\bi\s+(?:do\s+not|don'?t)\s+own\b|\ball\s+rights\s+(?:go|goes|belong|belongs)\s+to\b|"
+                         r'\bno\s+copyright\s+infringement\s+intended\b|\bcopyright\s+(?:belongs|goes)\s+to\b|'
+                         r'\bcopyright\s+disclaimer\b|\bfair\s+use\s+(?:act|disclaimer)\b|\bfor\s+entertainment\s+purposes\s+only\b',re.I)
+# Trailers are studio footage too, whoever uploads them; breakdowns and reactions stay allowed.
+STUDIO_PROMO=re.compile(r'\b(?:trailer|teaser|sneak peek|tv spot)\b|\bin (?:theaters|theatres|cinemas)\b|\bnow streaming\b|\bstreaming (?:on|now)\b',re.I)
+SPOKEN_FORMAT=re.compile(r'\b(?:interview|podcast|press conference|red carpet|premiere|q&a|panel|vlog|gameplay|walkthrough|playthrough|'
+                         r'news|arrested|lawsuit|dies|died|reveals|says|talks|responds)\b',re.I)
+
+
+def scene_risk(item):
+    """Plain-English reason a video looks like a movie or TV scene re-upload, or ''.
+
+    Reaction, breakdown and review formats stay allowed, as do news and interviews that
+    only mention a film or show."""
+    title=str(item.get('title',''))
+    description=str(item.get('description',''))[:1500]
+    if COMMENTARY.search(title): return ''
+    if STUDIO_PROMO.search(title):
+        return 'Studio trailer or promo (re-uploads included): skipped to avoid copyright claims'
+    reason='Movie or TV scene (studio footage, even when re-uploaded): skipped to avoid copyright claims'
+    if SCENE.search(title) and not NEWS_SCENE.search(title): return reason
+    if FRANCHISE.search(title) and FRANCHISE_REUSE.search(title) and not SPOKEN_FORMAT.search(title): return reason
+    if str(item.get('categoryId','')) in FILM_CATEGORIES and not SPOKEN_FORMAT.search(title):
+        return 'Film, show or trailer category upload: skipped to avoid copyright claims'
+    if REUPLOAD_NOTE.search(description):
+        return 'Description says the uploader does not own the footage: skipped to avoid copyright claims'
+    return ''
+
+
+def category_id(categories):
+    """YouTube category id for yt-dlp's category names (only the ones the screen uses)."""
+    names=set(categories or [])
+    for name,ident in (('Music','10'),('Film & Animation','1'),('Movies','30'),('Shows','43'),('Trailers','44')):
+        if name in names: return ident
+    return ''
+
+
 def normal_channel(item):
     name=str(item.get('channelTitle') or item.get('source') or item.get('creator') or '').strip()
     return re.sub(r'\s+',' ',re.sub(r'[\u2122\u00ae|•·:()\[\]_.,!-]+',' ',name)).strip()
@@ -142,7 +201,7 @@ def copyright_risk(item):
     title=str(item.get('title',''))
     if OFFICIAL_CUT.search(title) and not COMMENTARY.search(title):
         return 'Official studio, network or publisher cut (trailer, clip or episode): skipped to avoid copyright claims'
-    return ''
+    return scene_risk(item)
 
 
 def screen(item):

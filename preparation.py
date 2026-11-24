@@ -88,7 +88,7 @@ def import_video(url, clearance=''):
             if problem: raise ValueError(problem)
             decision=policy.screen(dict(title=info.get('title',''),creator=info.get('uploader',''),
                                         description=info.get('description',''),audio_language=info.get('language',''),
-                                        categoryId='10' if 'Music' in (info.get('categories') or []) else ''))
+                                        categoryId=policy.category_id(info.get('categories'))))
             if not decision['eligible']: raise ValueError(decision['reason'])
             folder.mkdir(parents=True, exist_ok=True)
             # Reuse the metadata already read instead of asking YouTube twice.
@@ -105,7 +105,7 @@ def import_video(url, clearance=''):
     record = dict(input=str(files[0].resolve()),source_url=url,title=info.get('title',''),
                   creator=info.get('uploader',''),clearance_reference=clearance.strip(),
                   audio_language=info.get('language',''),description=info.get('description',''),
-                  categoryId='10' if 'Music' in (info.get('categories') or []) else '')
+                  categoryId=policy.category_id(info.get('categories')))
     p.write(receipt,record)
     return record
 

@@ -178,6 +178,8 @@ def skipped_ids():
 def visible_ranked(items):
     hidden=skipped_ids()
     current=[x for x in items if x.get('policy_version')==policy.VERSION and x['id'] not in hidden]
+    # Saved finds are checked again so a newer copyright rule applies without a rescan.
+    current=[x for x in current if not policy.copyright_risk(x)]
     return filter_ranked(policy.visible_candidates(current))
 
 

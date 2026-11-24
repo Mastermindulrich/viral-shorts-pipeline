@@ -126,6 +126,21 @@ class RunTests(unittest.TestCase):
         p.write(p.DATA/'exports'/ident/'upload.json',dict(state='uploaded',uploaded_at=dt.datetime.now(dt.timezone.utc).isoformat(),video_id='vid'+ident))
         self.uploaded.append(ident); return 'vid'+ident
 
+    def test_queued_clip_from_blocked_source_is_held_back_before_posting(self):
+        # A clip queued under an older rule (e.g. a studio trailer) is checked again before upload.
+        self.clip('trailer'); self.clip('fan')
+        p.write(p.DATA/'imports'/'v'/'source.json',dict(title='Avengers: Doomsday | Final Trailer',creator='Marvel Entertainment'))
+        fan_job=p.read(p.DATA/'exports'/'fan'/'job.json'); fan_job['input']=str(p.DATA/'imports'/'w'/'source.mp4')
+        p.write(p.DATA/'exports'/'fan'/'job.json',fan_job)
+        p.write(p.DATA/'imports'/'w'/'source.json',dict(title='Kai Cenat plays GTA 6',creator='Kai Cenat Clips'))
+        noon=dt.datetime.now(dt.timezone.utc).replace(hour=17,minute=0)
+        with patch.object(ap,'publish',side_effect=self.fake_publish), patch.object(ap,'local_now',return_value=noon), \
+             patch.object(ap,'prepare_round',return_value=([],[])):
+            ap.save_settings(dict(post_extra=False))
+            with self.assertRaisesRegex(RuntimeError,'Behind schedule'): ap.run()  # retries next hour with a new clip
+        self.assertEqual(self.uploaded,['fan'])
+        self.assertIn('Official rights-holder channel',ap.queue()['skipped']['trailer'])
+
     def test_publishes_only_due_autopilot_clips(self):
         self.clip('one'); self.clip('two'); self.clip('three'); self.clip('manual',queued=False)
         noon=dt.datetime.now(dt.timezone.utc).replace(hour=17,minute=0)
