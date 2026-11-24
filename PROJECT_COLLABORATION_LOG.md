@@ -234,3 +234,9 @@ The first run on the owner's Mac found 763 reports and 435 postable stories. Goo
 Fixes: a `NOT_NEWS` filter (deals, sales, listicles, grades, odds, how-to-watch, recipes and so on); Reddit falls back to its RSS feed; one-string facts are wrapped in a list and facts need at least 4 words; hashtags are de-duplicated; `generate_image` retries with a streamed request and without width/height and reports Ollama's error text; `community.pending` never posts cards with one-letter facts.
 
 Tests: before 132 OK. After: `python -m unittest discover -s tests -v` → 137 OK.
+
+## 2026-11-22 — Claude — clip discovery uses the news desk's buzz terms
+
+The news desk (PR #8, separate thread) writes `data/newsdesk/trending-terms.json` with current X, Google Trends and Reddit terms. `scouting.trending_queries` now lists those terms first (by weight, only when the file is under 6 hours old, skipping Reddit entries because they are whole post titles, via `scouting.newsdesk_terms`), then Google Trends daily searches, deduplicated case-insensitively. Without the news desk file, behaviour is unchanged. Note for PR #8: it branched from 67c36f1, before the discovery-broadening commit a957d82 that is now on main; merge main into it and keep both sides in `scouting.py`, `content_policy.py`, `autopilot.py` and `tests/test_autopilot.py`.
+
+Tests: before 109 OK; after `python -m unittest discover -s tests -v` → 110 OK (added `test_news_desk_terms_lead_trending_queries`).

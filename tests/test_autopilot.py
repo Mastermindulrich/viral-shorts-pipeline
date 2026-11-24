@@ -61,6 +61,18 @@ class FocusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, patch.object(p,'DATA',Path(td)):
             self.assertEqual(s.trending_queries(['US'],lambda url: (_ for _ in ()).throw(OSError('offline'))),[])
 
+    def test_news_desk_terms_lead_trending_queries(self):
+        now=dt.datetime(2026,11,22,20,tzinfo=dt.timezone.utc)
+        with tempfile.TemporaryDirectory() as td, patch.object(p,'DATA',Path(td)):
+            p.write(Path(td)/'newsdesk'/'trending-terms.json',dict(updated_at=now.isoformat(),
+                    terms=[dict(term='swimming record',source='X',weight=2),dict(term='Strait of Hormuz',source='Google Trends',weight=5),
+                          dict(term='Man finds a 40 year old letter in his attic and tracks down the sender',source='Reddit r/news',weight=5)]))
+            fetch=lambda url: b'<rss><channel><item><title>Swimming Record</title></item><item><title>Tony Romo</title></item></channel></rss>'
+            self.assertEqual(s.trending_queries(['US'],fetch,now),['Strait of Hormuz','swimming record','Tony Romo'])
+            # Stale news desk terms are ignored; the Google cache still answers.
+            later=now+dt.timedelta(hours=7)
+            self.assertEqual(s.newsdesk_terms(later),[])
+
     def test_trending_finds_pass_category_filter_and_rank_up(self):
         now=dt.datetime.now(dt.timezone.utc)
         base=dict(published=(now-dt.timedelta(hours=5)).isoformat(),views=50000,average_views_per_hour=9000,duration_seconds=600,source='Creator')

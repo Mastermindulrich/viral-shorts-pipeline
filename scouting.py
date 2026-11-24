@@ -239,11 +239,34 @@ def refresh():
     return result
 
 
-def trending_queries(regions, fetch=None, now=None):
-    """Today's top searches (Google Trends daily feed), cached for an hour.
+def newsdesk_terms(now=None, max_age_hours=6):
+    """Buzz terms the news desk saved (X, Google Trends, Reddit), strongest first.
 
-    X/Twitter trends need a paid API, so Google's free public feed is the 'what is
-    buzzing right now' signal. Returns [] on any failure; scans then use topics only."""
+    Reads data/newsdesk/trending-terms.json when it is fresh; [] when missing or stale."""
+    now=now or dt.datetime.now(dt.timezone.utc)
+    try:
+        saved=p.read(p.DATA/'newsdesk'/'trending-terms.json')
+        if (now-dt.datetime.fromisoformat(saved['updated_at'])).total_seconds()>max_age_hours*3600: return []
+        terms=sorted(saved.get('terms') or [],key=lambda t:-float(t.get('weight') or 0))
+        # Reddit entries are whole post titles, too long to work as search queries.
+        return [str(t['term']).strip()[:120] for t in terms
+                if str(t.get('term') or '').strip() and not str(t.get('source') or '').startswith('Reddit')]
+    except Exception: return []
+
+
+def trending_queries(regions, fetch=None, now=None):
+    """What is buzzing now: news desk terms (X, Reddit, Trends) first, then Google Trends.
+
+    X/Twitter trends need a paid API, so the news desk's scan and Google's free daily
+    feed are the signal. Returns [] on any failure; scans then use topics only."""
+    found=[]
+    for term in newsdesk_terms(now)+google_trends(regions,fetch,now):
+        if term.casefold() not in {x.casefold() for x in found}: found.append(term)
+    return found[:40]
+
+
+def google_trends(regions, fetch=None, now=None):
+    """Today's top searches (Google Trends daily feed), cached for an hour."""
     import urllib.request
     import xml.etree.ElementTree as ET
     now=now or dt.datetime.now(dt.timezone.utc)
