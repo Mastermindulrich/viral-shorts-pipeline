@@ -374,6 +374,8 @@ if __name__=='__main__':
         import autopilot; autopilot.install()
     elif sys.argv[1]=='uninstall-autopilot':
         import autopilot; autopilot.uninstall()
+    elif sys.argv[1]=='health':
+        import health; print(health.report_text(int(sys.argv[2]) if len(sys.argv)>2 else 24))
     elif sys.argv[1]=='doctor':
         checks=readiness(); print(readiness_report(checks))
         sys.exit(any(x['required'] and not x['ok'] for x in checks))

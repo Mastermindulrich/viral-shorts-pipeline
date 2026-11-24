@@ -189,6 +189,10 @@ class PipelineTests(unittest.TestCase):
 
 
 class AutopilotNewsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        patcher=patch.object(p,'DATA',Path(self.tmp.name)); patcher.start(); self.addCleanup(patcher.stop)
+
     def test_news_footage_alternates_with_other_picks(self):
         news=[dict(url='n1'),dict(url='n2')]
         others=[dict(url='c1',focus=True),dict(url='c2'),dict(url='n2')]

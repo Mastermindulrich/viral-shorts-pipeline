@@ -1,0 +1,5 @@
+{
+  "_help": "Channels listed in allow_channels are never treated as rights holders; block_channels adds channels to skip. Exact channel names, any letter case.",
+  "allow_channels": [],
+  "block_channels": []
+}

@@ -405,8 +405,17 @@ def upload(job):
         media_body=MediaFileUpload(str(dest/'clip.mp4'), mimetype='video/mp4', resumable=True, chunksize=8*1024*1024))
     response = None
     try:
+        resumes = 0
         while response is None:
-            _, response = request.next_chunk(num_retries=5)
+            try:
+                _, response = request.next_chunk(num_retries=5)
+            except Exception as exc:
+                # A dropped connection (broken pipe, reset, timeout) mid-upload: the resumable session
+                # survives on YouTube's side, so ask it where it stopped and continue from there.
+                if quota_refusal(exc) or resumes >= len(UPLOAD_RESUME_WAITS) or not dropped_connection(exc): raise
+                wait = UPLOAD_RESUME_WAITS[resumes]; resumes += 1
+                print(f'Upload interrupted ({str(exc)[:80]}); resuming in {wait}s (attempt {resumes} of {len(UPLOAD_RESUME_WAITS)})', flush=True)
+                upload_sleep(wait)
     except Exception as exc:
         if quota_refusal(exc):
             # YouTube refused before accepting any video bytes, so nothing was uploaded:
@@ -419,6 +428,22 @@ def upload(job):
                     'video_id': response['id'], 'privacy':status['privacyStatus'], 'job_sha': fingerprint(job),
                     'source_url': job['source_url'], 'start': job['start'], 'end': job['end']})
     print('https://www.youtube.com/watch?v=' + response['id'])
+
+UPLOAD_RESUME_WAITS = (5, 20, 60, 120, 240)
+DROPPED_HINTS = ('broken pipe', 'connection reset', 'connection aborted', 'remote end closed', 'timed out', 'timeout',
+                 'incompleteread', 'ssl', 'temporarily unavailable', 'http error 5', ' 500', ' 502', ' 503', ' 504')
+
+
+def upload_sleep(seconds):
+    import time
+    time.sleep(seconds)
+
+
+def dropped_connection(exc):
+    if isinstance(exc, (ConnectionError, TimeoutError, BrokenPipeError)): return True
+    text = (type(exc).__name__ + ' ' + str(exc)).lower()
+    return any(h in text for h in DROPPED_HINTS)
+
 
 QUOTA_HINTS = ('quotaexceeded', 'exceeded your quota', 'quota exceeded', 'uploadlimitexceeded',
                'exceeded the number of videos', 'daily upload cap')
@@ -446,7 +471,36 @@ def reconcile_receipts(window_hours=48):
     return fixed
 
 
-def api_recent_uploads(channel_id, service=None):
+def release_unconfirmed(min_age_hours=2, service=None, now=None):
+    """Give back clips whose upload was cut off and never reached YouTube.
+
+    A receipt left in 'uploading' blocks any retry (no duplicate posts). After min_age_hours,
+    the channel's own upload list from the YouTube Data API (authoritative, includes videos
+    still processing) is checked; when no video with the clip's title was published after the
+    attempt, the receipt is renamed upload-unconfirmed-<time>.json (kept for the record) and
+    the clip can be posted again. Nothing happens when the API cannot be read. Returns ids."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    stale = []
+    for path in (DATA/'exports').glob('*/upload.json'):
+        try: receipt = read(path)
+        except (OSError, ValueError): continue
+        if receipt.get('state') != 'uploading': continue
+        try: attempted = dt.datetime.fromisoformat(receipt['attempted_at'])
+        except (KeyError, ValueError): continue
+        if (now - attempted).total_seconds() >= min_age_hours * 3600: stale.append((path, receipt))
+    if not stale: return []
+    uploads = api_recent_uploads(read(ROOT/'config'/'settings.json').get('expected_channel_id'), service, limit=50)
+    released = []
+    for path, receipt in stale:
+        job = read(path.parent/'job.json')
+        if any(video['title'] == job['title'] and video['published'] >= receipt['attempted_at'][:19] for video in uploads):
+            continue  # reconcile_receipts() records it as uploaded
+        path.rename(path.with_name('upload-unconfirmed-' + now.strftime('%Y%m%dT%H%M%S') + '.json'))
+        released.append(path.parent.name)
+    return released
+
+
+def api_recent_uploads(channel_id, service=None, limit=15):
     if service is None:
         from googleapiclient.discovery import build
         service = build('youtube', 'v3', credentials=credentials(), cache_discovery=False)
@@ -454,7 +508,7 @@ def api_recent_uploads(channel_id, service=None):
     if not channels:
         raise ValueError('YouTube API did not find this channel')
     uploads = channels[0]['contentDetails']['relatedPlaylists']['uploads']
-    items = service.playlistItems().list(part='snippet,contentDetails', playlistId=uploads, maxResults=15).execute().get('items', [])
+    items = service.playlistItems().list(part='snippet,contentDetails', playlistId=uploads, maxResults=limit).execute().get('items', [])
     return [dict(id=x['contentDetails']['videoId'], title=x['snippet']['title'],
                  published=x['contentDetails'].get('videoPublishedAt', x['snippet'].get('publishedAt','')))
             for x in items if x.get('contentDetails', {}).get('videoId')]

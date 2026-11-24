@@ -105,7 +105,10 @@ class RunTests(unittest.TestCase):
                       patch.object(studio,'preferences',return_value=dict(studio.DEFAULTS,timezone='UTC')),
                       # The news desk reads the web; its hooks are covered in test_newsdesk.
                       patch.object(ap,'news_images',return_value=[]),patch.object(ap,'news_footage',return_value=[]),
-                      patch.object(ap,'community_posts',return_value=[])]
+                      patch.object(ap,'community_posts',return_value=[]),
+                      # Health checks and niche learning read the Mac and YouTube; covered in test_health.
+                      patch.object(ap.health,'preflight',return_value=[]),patch.object(ap.learning,'refresh_niches',return_value={}),
+                      patch.object(p,'release_unconfirmed',return_value=[])]
         for x in self.patches: x.start()
         self.uploaded=[]
 

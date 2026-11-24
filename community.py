@@ -149,6 +149,11 @@ def post_next(limit=1, playwright_factory=None, headless=True):
                 except PermissionError:
                     p.write(record_path,dict(record,attempts=record['attempts']-1)); raise
                 except Exception as exc:
+                    if 'create post' in str(exc).lower():
+                        # The Posts tab itself is unavailable, not this image: keep the image's attempts and
+                        # stop; autopilot pauses image posts for a day instead of retrying every hour.
+                        p.write(record_path,dict(record,attempts=record['attempts']-1,last_error=str(exc)[:300]))
+                        raise
                     record['last_error']=str(exc)[:300]
                     errors_folder().mkdir(parents=True,exist_ok=True)
                     try: page.screenshot(path=str(errors_folder()/(record_path.stem+f'-{record["attempts"]}.png')))

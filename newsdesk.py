@@ -34,6 +34,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pipeline as p
+import health
 
 # Paths follow pipeline.DATA at call time (tests point DATA at a temporary folder).
 def folder(): return p.DATA/'newsdesk'
@@ -673,9 +674,13 @@ def make_images(count=None, cfg=None, stage=print, ask=ask):
         card=write_card(story,editor,ask)
         name=dt.datetime.now().strftime('%H%M%S')+'-'+story['key']
         art=None
-        if ai:
-            try: art=generate_image(card['image_prompt'],cfg['image_model'],out/(name+'-art.png'))
-            except Exception as exc: print(f'Illustration skipped ({exc}); using the designed background',flush=True)
+        if ai and health.allowed('illustration'):
+            try:
+                art=generate_image(card['image_prompt'],cfg['image_model'],out/(name+'-art.png')); health.success('illustration')
+            except Exception as exc:
+                print(f'Illustration skipped ({exc}); using the designed background',flush=True)
+                # Each failed request can take minutes; after 3 in a row stop asking for a day.
+                health.failure('illustration',exc)
         path=out/(name+'.jpg')
         compose(card,story,art,cfg['channel_name']).save(path,quality=92)
         p.write(out/(name+'.json'),dict(image=path.name,caption=caption(card,story),card=card,
