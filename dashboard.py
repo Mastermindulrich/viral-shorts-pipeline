@@ -15,28 +15,13 @@ import content_policy as policy
 import scouting
 import studio
 import troubleshooting
+import ui
+import health
+import learning
+import autopilot
 os.chdir(p.ROOT)
 st.set_page_config(page_title='Viral Moment Clips',page_icon='🎬',layout='wide')
-st.markdown("""<style>
-:root{--vmc-accent:#0a84ff;--vmc-card:#1c1c1e;--vmc-line:rgba(255,255,255,.08);--vmc-dim:#98989d}
-html,body,[class*="css"],.stApp,button,input,textarea,select{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Inter,Arial,sans-serif!important;-webkit-font-smoothing:antialiased}
-.block-container{padding-top:2.4rem;max-width:1080px}
-header[data-testid="stHeader"]{background:transparent}
-h1,h2,h3{letter-spacing:-.022em;font-weight:650}
-.vmc-title{font-size:2.4rem!important;font-weight:700;letter-spacing:-.035em;line-height:1.1;margin:0}
-.vmc-sub{color:var(--vmc-dim);font-size:1.05rem;margin:.35rem 0 1.6rem}
-.vmc-pill{display:inline-block;letter-spacing:0;line-height:1.4;padding:.18rem .7rem;border-radius:999px;font-size:.78rem;font-weight:600;margin-left:.5rem;vertical-align:middle}
-.vmc-ok{background:rgba(48,209,88,.16);color:#30d158}.vmc-warn{background:rgba(255,159,10,.16);color:#ff9f0a}
-.vmc-meta{color:var(--vmc-dim);font-size:.86rem;line-height:1.35}
-div[data-testid="stVerticalBlockBorderWrapper"]{border-radius:18px;border-color:var(--vmc-line)!important;background:var(--vmc-card)}
-.stButton>button,.stDownloadButton>button,.stLinkButton>a,.stFormSubmitButton>button{border-radius:980px;font-weight:600;padding:.45rem 1.1rem;border:1px solid var(--vmc-line)}
-.stButton>button[kind="primary"],.stFormSubmitButton>button[kind="primary"]{background:var(--vmc-accent);border:0;color:#fff}
-.stButton>button[kind="primary"]:hover{filter:brightness(1.12)}
-button[data-baseweb="tab"]{font-weight:600;font-size:1rem;padding:.55rem 1.1rem}
-[data-testid="stExpander"] details{border-radius:14px;border-color:var(--vmc-line)}
-[data-testid="stImage"] img,video{border-radius:14px}
-.stProgress>div>div>div>div{background:var(--vmc-accent)}
-</style>""",unsafe_allow_html=True)
+st.markdown(ui.CSS,unsafe_allow_html=True)
 for folder in ['inbox','jobs','exports']: (p.DATA/folder).mkdir(parents=True,exist_ok=True)
 
 
@@ -75,11 +60,49 @@ settings=p.read(p.ROOT/'config/settings.json')
 defaults=studio.preferences()
 checks=setup_checks()
 missing=[x for x in checks if x['required'] and not x['ok']]
-status=('<span class="vmc-pill vmc-warn">Setup needed — see Settings</span>' if missing
-        else '<span class="vmc-pill vmc-ok">Ready</span>')
-st.markdown(f'<div class="vmc-title">Viral Moment Clips{status}</div>'
-            '<div class="vmc-sub">Find a fresh video, cut 15–180 s English-subtitled moments, publish publicly when you approve.</div>',
-            unsafe_allow_html=True)
+pilot=autopilot.settings(); last_run=autopilot.status()
+report=health.report()
+zone=ZoneInfo(defaults['timezone']); now_local=dt.datetime.now(zone)
+
+
+def posted_today():
+    rows=[]
+    for receipt_path in (p.DATA/'exports').glob('*/upload.json'):
+        try:
+            record=p.read(receipt_path)
+            if record.get('state')!='uploaded' or not record.get('video_id'): continue
+            day,label=studio.publication_time(record,defaults['timezone'])[:2]
+            if day!=now_local.date(): continue
+            title=p.read(receipt_path.parent/'job.json').get('title','')
+            try: when=ui.clock(dt.datetime.strptime(label[:16],'%Y-%m-%d %H:%M'))
+            except ValueError: when=''
+        except Exception: continue
+        rows.append(dict(video_id=record['video_id'],title=title,when=when,sort=label))
+    return sorted(rows,key=lambda x:x['sort'],reverse=True)
+
+
+today_posts=posted_today()
+ready_count=len(autopilot.ready())
+if missing: eyebrow,orb='Setup needed · see Settings','bad'
+elif busy: eyebrow,orb='Working','busy'
+elif report['status']=='needs_you': eyebrow,orb='Needs you · see Today','warn'
+elif pilot['enabled']: eyebrow,orb='Autopilot is live',''
+else: eyebrow,orb='Autopilot is off','warn'
+upcoming=ui.next_tick(now_local)
+if pilot['enabled']:
+    lede=(f"{ui.greeting(now_local)}. <b>{len(today_posts)} Short{'s' if len(today_posts)!=1 else ''}</b> posted today, "
+          f"<b>{ready_count}</b> ready to go. Next check at <b>{ui.clock(upcoming)}</b>. "
+          'It finds what is buzzing, cuts the best moment, fixes its own problems and posts. Nothing to do.')
+else:
+    lede=f'{ui.greeting(now_local)}. Autopilot is paused. Turn it on in Settings, or press Make new clips to cut clips for review.'
+st.markdown(ui.hero(eyebrow,lede,orb),unsafe_allow_html=True)
+target=int(pilot['daily_target'])
+st.markdown(ui.tiles([
+    ui.tile('Posted today',len(today_posts),f'minimum {target} a day',meter=100*min(1,len(today_posts)/max(1,target)),tint='rgba(48,209,88,.18)'),
+    ui.tile('Ready to post',ready_count,'cut, subtitled and checked',tint='rgba(10,132,255,.2)'),
+    ui.tile('Self-repair',report['incidents'],'problems handled in 24 h' if report['incidents'] else 'nothing to fix in 24 h',tint='rgba(191,90,242,.2)'),
+    ui.tile('Needs you',len(report['needs_you']) or '0',report['needs_you'][0]['title'] if report['needs_you'] else 'all clear',
+            tint='rgba(255,159,10,.22)' if report['needs_you'] else 'rgba(100,210,255,.14)')]),unsafe_allow_html=True)
 
 jobs=[]
 for path in sorted((p.DATA/'exports').glob('*/job.json'),key=lambda x:x.stat().st_mtime):
@@ -129,7 +152,25 @@ def activity():
         elif status=='complete' and current.get('action')!='update': meta('✓ '+current.get('stage','Finished'))
 activity()
 
-review,discover,published,tools=st.tabs([f'Review ({len(pending)})','Discover','Published','Settings'])
+overview,review,discover,published,tools=st.tabs(['Today',f'Review ({len(pending)})','Discover','Published','Settings'])
+
+with overview:
+    left,right=st.columns([3,2],gap='large')
+    with left:
+        st.markdown(ui.card('Posted today',ui.shorts_strip(today_posts[:12]),
+                            f"{len(today_posts)} live on YouTube · times in {defaults['timezone']}"),unsafe_allow_html=True)
+        insight=learning.summary()
+        niches=sorted({x.get('niche') for x in scouting.visible_ranked(p.read(p.DATA/'ranked-candidates.json'))[:30]} - {None}) if (p.DATA/'ranked-candidates.json').exists() else []
+        body=''.join(ui.niche_chip(n) for n in niches) or '<div class="vmc-meta">The next search fills this in.</div>'
+        if insight: body+=''.join(ui.row('✦',line,'', 'info') for line in insight)
+        st.markdown(ui.card('What it is watching',body,'Niches in the current shortlist. Official studio, network and label uploads are skipped to avoid copyright claims.'),unsafe_allow_html=True)
+    with right:
+        st.markdown(ui.health_card(report),unsafe_allow_html=True)
+        if last_run:
+            rows=ui.row('◷','Last run '+ui.clock(dt.datetime.fromisoformat(last_run['last_run']).astimezone(zone)),
+                        ui.esc(f"{last_run.get('published_today',0)} posted today · {last_run.get('ready',0)} ready")
+                        +''.join('<br>'+ui.esc(x) for x in (last_run.get('health_checks') or [])),'info')
+            st.markdown(ui.card('Autopilot',rows),unsafe_allow_html=True)
 
 
 def approve(path, job, title, description, audience):
@@ -248,6 +289,11 @@ with discover:
                 meta(f"{item.get('source','')} · {item.get('views',0):,} views · {signal:,.0f}/hour"
                      +(f" · {length//60}:{length%60:02d}" if length else '')+f" · {', '.join(item.get('categories',[]))}")
                 meta(f"{item.get('signal_label','Average')} · {item.get('source_type','')} · {item['policy']['language_status']}")
+                chips=ui.niche_chip(item.get('niche') or policy.niche(item))
+                if item.get('buzz'): chips+=ui.chip('Buzzing: '+item['buzz'],'orange')
+                if item.get('clickability') is not None: chips+=ui.chip(f"Clickability {item['clickability']}/20",'purple')
+                if item.get('focus'): chips+=ui.chip('GTA 6','blue')
+                st.markdown(chips,unsafe_allow_html=True)
                 a,b,c=st.columns([2,1,1])
                 if a.button('Make clips',key='generate-'+item['id'],type='primary',disabled=busy,**FILL_BUTTON):
                     launch('prepare',dict(url=item['url'],title=item['title']))
@@ -331,8 +377,7 @@ with tools:
         except Exception as exc: show_problem(exc)
     if b.button('Update app',disabled=busy,**FILL_BUTTON,help='Keeps your videos, sign-in and settings. A failed check restores the previous code.'): launch('update')
     st.markdown('### Autopilot')
-    import autopilot
-    pilot=autopilot.settings(); last=autopilot.status()
+    last=last_run
     slots=', '.join(f'{h}:00' for h in pilot['slots'])
     meta(f"Posts at least {pilot['daily_target']} clips a day with no review (due by {slots}, your timezone), plus one extra ready clip per hour between {pilot['extra_start']}:00 and {pilot['extra_end']}:00, from what is trending today across news, politics, celebrities, sports, culture and GTA 6. "
          'Checks every hour and retries failures on its own. Clips still waiting in Review are never published by autopilot.')
@@ -384,7 +429,7 @@ with tools:
             except Exception as exc: show_problem(exc)
 
 with st.expander('Activity and diagnostics',expanded=False):
-    report=runtime.diagnostics()
-    st.code(report,language=None)
-    st.download_button('Download diagnostics to share',report,'viral-moment-clips-diagnostics.txt')
+    diagnostics=runtime.diagnostics()+'\n\n--- Self-repair report ---\n'+health.report_text()
+    st.code(diagnostics,language=None)
+    st.download_button('Download diagnostics to share',diagnostics,'viral-moment-clips-diagnostics.txt')
     meta('Credentials are filtered; check before sharing. The previous manual dashboard is still available: <code>python -m streamlit run dashboard_legacy.py</code>')

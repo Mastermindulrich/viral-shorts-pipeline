@@ -261,3 +261,19 @@ class CopyrightDiscoveryTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+
+class InterfaceTests(unittest.TestCase):
+    def test_titles_are_escaped_and_owner_steps_shown(self):
+        import ui
+        strip=ui.shorts_strip([dict(video_id='abc',title='<script>x</script>',when='9:07 PM')])
+        self.assertIn('&lt;script&gt;',strip); self.assertNotIn('<script>',strip)
+        card=ui.health_card(dict(headline='1 thing needs you',needs_you=[dict(title='YouTube sign-in expired',why='Testing mode',
+                                 owner='Run: pipeline.py auth')],handled=[],paused=[],fixes=[]))
+        self.assertIn('pipeline.py auth',card); self.assertIn('Do this',card)
+        self.assertIn('No problems',ui.health_card(dict(headline='',needs_you=[],handled=[],paused=[],fixes=[])))
+
+    def test_next_check_is_the_next_hourly_tick(self):
+        import ui
+        self.assertEqual(ui.next_tick(dt.datetime(2026,11,23,21,37)).strftime('%H:%M'),'22:07')
+        self.assertEqual(ui.next_tick(dt.datetime(2026,11,23,21,5)).strftime('%H:%M'),'21:07')

@@ -5,6 +5,34 @@ create English captions, review and publish. Original sound only; no narration.
 The former 60-second cap has been removed. New clips may be up to 180 seconds, with the shortest coherent self-contained cut preferred. The dashboard publishes approved
 clips **public immediately**; YouTube processing or channel restrictions can delay playback.
 
+## What the app does on its own (2026-11-24 upgrade)
+
+Open the app and the **Today** tab tells you, in one sentence, how many Shorts went out,
+how many are ready and when the next hourly check runs. Four tiles show Posted today,
+Ready to post, Self-repair (problems handled in the last 24 h) and **Needs you**, which is
+normally 0.
+
+- **Self-repair.** Every failure is diagnosed (about 25 known causes: expired sign-in,
+  YouTube quota, outdated downloader, Ollama crash, full disk, dropped upload, no complete
+  scene, non-English video...). The app then picks the better approach by itself: upgrade
+  yt-dlp and retry, restart Ollama and retry, free disk space, ask the editor for the single
+  best moment, use the lighter transcription model, or move to the next video. Optional extras
+  that keep failing (illustrations, the Posts tab) pause for a day instead of retrying every
+  hour. Only problems that truly need you (for example a new YouTube sign-in) appear under
+  **Needs you**, with the exact step to take. Terminal: `.venv/bin/python app_runtime.py health`.
+- **Uploads that drop** resume from where they stopped. An upload that could not be confirmed
+  is checked against your channel after two hours and goes out again only if YouTube never got it.
+- **Copyright guard.** Uploads from rights holders (studios such as HBO, Disney, Marvel,
+  Netflix; TV and news networks; record labels; game publishers; sports leagues and
+  broadcasters) and their official cuts (official trailers, official clips, full episodes) are
+  skipped, even when re-uploaded. Footage that other people filmed or posted, reactions and
+  breakdowns stay allowed. Adjust in `config/copyright.json` (`allow_channels`, `block_channels`).
+- **Smarter picks across many niches.** Titles are scored for clickability, stories people are
+  talking about right now (news desk buzz terms) get a boost, the shortlist spans several niches,
+  autopilot avoids posting the same niche twice in a row, and the app learns from your own
+  Shorts' views which niches your viewers watch. Channels whose videos never produce a usable
+  clip are paused for 14 days, so rounds are not wasted.
+
 ## Daily workflow
 
 1. Open **Viral Moment Clips.app** from your Mac Applications folder.
