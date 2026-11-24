@@ -22,6 +22,7 @@ class ContentPolicyTests(unittest.TestCase):
             # Owner rule 2026-11-24: official cuts are skipped (copyright); reactions to them stay allowed.
             ({'title':'New Film Official Trailer','source':'Movie studio'},False),
             ({'title':'New Film Official Trailer REACTION','source':'Movie fans'},True),
+            ({'title':'Avengers: Doomsday | Final Trailer | In Theaters December 18','source':'Movie reuploads'},False),
             ({'title':'Artist - Hot Interview','source':'Artist','categoryId':'10'},True),
             ({'title':'Artist dance challenge','source':'ArtistVEVO','categoryId':'10'},True),
             ({'title':'Amapiano dance challenge','source':'Dancers','categoryId':'10','defaultAudioLanguage':'zu'},True),
@@ -47,6 +48,31 @@ class ContentPolicyTests(unittest.TestCase):
                 self.assertFalse(decision['eligible']); self.assertEqual(decision['kind'],'copyright')
         for item in allowed:
             with self.subTest(item=item): self.assertTrue(policy.screen(item)['eligible'])
+
+    def test_movie_and_tv_scenes_are_blocked_even_from_fan_channels(self):
+        blocked=[dict(title='Captain America: Civil War - Airport Battle Scene (4K)',source='Scene Hub'),
+                 dict(title='Steve Rogers is worthy | Avengers Endgame',source='Marvel Fan Edits'),
+                 dict(title='The Boys S04E08 Homelander ending',source='Clips Daily'),
+                 dict(title='Iron Man 4K HD scenes',source='Cinema Vault'),
+                 dict(title='Interstellar (2014) - docking scene',source='Movie Moments'),
+                 dict(title='Funny moment',source='Some channel',categoryId='1'),
+                 dict(title='Best moment ever',source='Uploader',description='I do not own this video. All rights go to Disney.'),
+                 dict(title='Opening scene that changed TV',source='TV Gold')]
+        allowed=[dict(title='Police arrive at the crime scene in Texas',source='Local eyewitness'),
+                 dict(title='Avengers Endgame theater reaction - crowd goes wild',source='Fan cam'),
+                 dict(title='Marvel star arrested after airport fight',source='News today'),
+                 dict(title='Captain America trailer breakdown - things you missed',source='Nerd Talk'),
+                 dict(title='Behind the scenes at the Met Gala red carpet',source='Celebrity cam'),
+                 dict(title='Kai Cenat plays GTA 6 for the first time',source='Kai Cenat Clips',categoryId='20')]
+        for item in blocked:
+            with self.subTest(item=item):
+                decision=policy.screen(item)
+                self.assertFalse(decision['eligible']); self.assertEqual(decision['kind'],'copyright')
+        for item in allowed:
+            with self.subTest(item=item): self.assertTrue(policy.screen(item)['eligible'],policy.screen(item))
+        self.assertEqual(policy.category_id(['Film & Animation']),'1')
+        self.assertEqual(policy.category_id(['Music','Entertainment']),'10')
+        self.assertEqual(policy.category_id(['Gaming']),'')
 
     def test_copyright_overrides_from_config(self):
         with patch.object(policy,'copyright_overrides',return_value=({'hbo'},{'my rival channel'})):
@@ -103,9 +129,10 @@ class ContentPolicyTests(unittest.TestCase):
         self.assertEqual(policy.discovery_config(result),result)
 
     def test_saved_candidates_are_rescreened(self):
-        result=policy.visible_candidates([{'title':'Artist - Song (Official Video)'},{'title':'Movie trailer'}])
-        self.assertEqual(len(result),1)
-        self.assertEqual(result[0]['title'],'Movie trailer')
+        # Owner rule 2026-11-24: trailers are studio footage even when re-uploaded; reactions stay.
+        result=policy.visible_candidates([{'title':'Artist - Song (Official Video)'},{'title':'Movie trailer'},
+                                          {'title':'Movie trailer reaction'}])
+        self.assertEqual([x['title'] for x in result],['Movie trailer reaction'])
 
     def test_api_enrichment_filters_and_retains_exclusion_reason(self):
         service=MagicMock()

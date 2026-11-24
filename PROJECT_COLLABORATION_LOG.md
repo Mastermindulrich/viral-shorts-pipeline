@@ -259,3 +259,13 @@ Evidence first: read the Mac's live logs (folder access). 11 Shorts posted on 20
 Tests: before 137 OK (3 skipped without Streamlit); after merging PR #9 137 OK. After: `python -m unittest discover -s tests -v` → 162 OK with Streamlit installed. Headless screenshots of Today and Discover checked. No suite run wrote to `data/`.
 
 Merge order: this PR contains PR #9, so merge this one and close #9 (or merge #9 first; this branch then merges cleanly).
+
+## 2026-11-24 — Claude — movie and TV scenes blocked, queued clips re-checked before posting
+
+Why: on 2026-11-23 autopilot posted three cuts ("The Boy Knows", "Trust Among Heroes", "Steve Rogers: Average or Not?") of "Avengers: Doomsday | Final Trailer" from Marvel Entertainment. The Mac was still on code from before PR #11 (pulled 22:13 that night), and the old `screen()` treated trailers as an allowed format. Current main already blocks that channel; this change closes the remaining gaps so re-uploads by fan channels are blocked too.
+
+Changes: `content_policy.scene_risk` (see handoff, copyright guard) blocks trailers/promos from any uploader, movie and TV scene titles, franchise scene/edit titles, Film/Movies/Shows/Trailers categories and "I do not own" style descriptions; reactions, breakdowns, reviews, news and interviews stay allowed. `policy.category_id` maps yt-dlp categories so imports keep the Film category. `scouting.visible_ranked` re-checks saved finds against the copyright rules, so no rescan is needed. `autopilot.source_risk` re-checks every queued clip's source before upload and skips blocked ones (reported by the Mac session: queued clips were never re-screened). Owner rule change: trailers are no longer an allowed format unless the title is a reaction or breakdown; `test_saved_candidates_are_rescreened` updated accordingly.
+
+Open item (not fixed, cause unconfirmed): on 2026-11-23 22:13 the Mac's `data/autopilot-queue.json` was rewritten to an empty ready list 1 s after a code update, dropping a clip kept for quota; likely the dashboard rerunning during the code swap.
+
+Tests: before 162 OK; after `python -m unittest discover -s tests -v` → 164 OK (new `test_movie_and_tv_scenes_are_blocked_even_from_fan_channels`, `test_queued_clip_from_blocked_source_is_held_back_before_posting`).

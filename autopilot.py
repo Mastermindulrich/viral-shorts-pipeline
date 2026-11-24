@@ -121,6 +121,16 @@ def credit(job):
     return '\n'.join(lines), gta
 
 
+def source_risk(ident):
+    """Copyright reason to hold back a queued clip, checked again just before posting."""
+    try:
+        job=p.read(p.DATA/'exports'/ident/'job.json')
+        source=Path(job['input']).parent/'source.json'
+        record=p.read(source) if source.exists() else {}
+    except (OSError,ValueError,KeyError): return ''
+    return policy.copyright_risk(dict(record,title=record.get('title',''),source=record.get('creator','')))
+
+
 def publish(ident):
     dest=p.DATA/'exports'/ident
     job=p.read(dest/'job.json')
@@ -362,6 +372,9 @@ def publish_due(cfg, today, timezone, local, stage, errors, published, extra=0):
     limit=max(due,done+extra)
     for ident in ready():
         if done>=limit: break
+        risk=source_risk(ident)
+        if risk:
+            skip(ident,risk); print(f'Autopilot held back {ident}: {risk}',flush=True); continue
         stage(f'Autopilot: publishing clip {done+1} for today (minimum {cfg["daily_target"]})',90)
         try:
             video=publish(ident); done+=1
