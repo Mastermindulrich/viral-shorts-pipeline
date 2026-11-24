@@ -12,7 +12,7 @@ how many are ready and when the next hourly check runs. Four tiles show Posted t
 Ready to post, Self-repair (problems handled in the last 24 h) and **Needs you**, which is
 normally 0.
 
-- **Self-repair.** Every failure is diagnosed (about 25 known causes: expired sign-in,
+- **Self-repair.** Every failure is diagnosed (about 24 known causes: expired sign-in,
   YouTube quota, outdated downloader, Ollama crash, full disk, dropped upload, no complete
   scene, non-English video...). The app then picks the better approach by itself: upgrade
   yt-dlp and retry, restart Ollama and retry, free disk space, ask the editor for the single
